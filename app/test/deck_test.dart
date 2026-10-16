@@ -1,15 +1,20 @@
-import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:tinycast/deck/controls_layer.dart';
 import 'package:tinycast/deck/geometry.dart';
+import 'package:tinycast/deck/label_layer.dart';
 import 'package:tinycast/deck/tape_deck.dart';
 import 'package:tinycast/deck/textures.dart';
 import 'package:tinycast/deck/transport.dart';
+import 'package:tinycast/library/library.dart';
 import 'package:tinycast/main.dart';
+import 'package:tinycast/pages/player_page.dart';
+import 'package:tinycast/playback/playback.dart';
+import 'package:tinycast/player/controls.dart';
 
-const _episode = Episode(show: 'Test', number: '001', title: 'Episode');
+import 'test_library.dart';
+
+const _episode = Episode(show: 'Test', tag: 'EP. 001', title: 'Episode');
 
 /// Pumps a bare deck and returns a mapper from view-box to global coordinates.
 Future<Offset Function(double, double)> _pumpDeck(
@@ -30,10 +35,34 @@ Future<Offset Function(double, double)> _pumpDeck(
   return (x, y) => rect.topLeft + Offset(x * k, y * k);
 }
 
+Future<void> _pumpControls(WidgetTester tester, Transport transport, {VoidCallback? onLoad}) async {
+  await tester.pumpWidget(
+    MaterialApp(
+      home: Center(
+        child: SizedBox(
+          width: 800,
+          child: PlayerControls(transport: transport, onLoad: onLoad ?? () {}),
+        ),
+      ),
+    ),
+  );
+  await tester.pump(const Duration(milliseconds: 16));
+}
+
+late Library _library;
+
+/// The app opened straight onto the deck, on a simulated tape.
+Widget _player(Transport transport) => ReelPlayerApp(
+  library: _library,
+  playback: Playback(transport: transport),
+  home: const PlayerPage(),
+);
+
 void main() {
   setUpAll(() async {
     TestWidgetsFlutterBinding.ensureInitialized();
     await Textures.load();
+    _library = await openTestLibrary();
   });
 
   setUp(() {
@@ -42,62 +71,60 @@ void main() {
     view.devicePixelRatio = 1;
   });
 
-  testWidgets('PLAY and PAUSE keys drive the transport', (tester) async {
+  testWidgets('the glass keys drive the transport', (tester) async {
     final transport = Transport(600, startAt: 100);
-    final at = await _pumpDeck(tester, transport);
+    await _pumpControls(tester, transport);
 
-    // Keys are 150 wide with a 22 gap, centred on x = 1000.
-    await tester.tapAt(at(667 + 172 + 75, 1000));
+    await tester.tap(find.byKey(const Key('play')));
     expect(transport.playing, isTrue);
-    await tester.tapAt(at(667 + 2 * 172 + 75, 1000));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('play')));
     expect(transport.playing, isFalse);
+
+    // The simulated clock ran on wall time while playing, so skips are relative.
+    final start = transport.time;
+    await tester.tap(find.byKey(const Key('rew')));
+    expect(transport.time, closeTo(start - 15, 0.01));
+    await tester.tap(find.byKey(const Key('ff')));
+    expect(transport.time, closeTo(start + 15, 0.01));
   });
 
-  testWidgets('REW and FF keys skip', (tester) async {
-    final transport = Transport(600, startAt: 100);
-    final at = await _pumpDeck(tester, transport);
-
-    await tester.tapAt(at(667 + 75, 1000));
-    expect(transport.time, closeTo(85, 0.01));
-    await tester.tapAt(at(667 + 3 * 172 + 75, 1000));
-    expect(transport.time, closeTo(115, 0.01));
-  });
-
-  testWidgets('dragging the fader seeks', (tester) async {
+  testWidgets('dragging the seek bar seeks', (tester) async {
     final transport = Transport(600);
-    final at = await _pumpDeck(tester, transport);
+    await _pumpControls(tester, transport);
 
-    final gesture = await tester.startGesture(at(sliderX0, 1170));
-    expect(transport.time, closeTo(0, 0.01));
-    await gesture.moveTo(at((sliderX0 + sliderX1) / 2, 1170));
-    expect(transport.time, closeTo(300, 0.01));
-    await gesture.moveTo(at(sliderX1 + 30, 1170));
+    final bar = tester.getRect(find.byKey(const Key('seek')));
+    final gesture = await tester.startGesture(bar.centerLeft + const Offset(20, 0));
+    await gesture.moveTo(bar.center);
+    await tester.pump();
+    expect(transport.time, closeTo(300, 20));
+    await gesture.moveTo(bar.centerRight + const Offset(40, 0));
+    await tester.pump();
     expect(transport.time, closeTo(600, 0.01));
     await gesture.up();
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.text('-0:00'), findsOneWidget);
   });
 
-  testWidgets('turning the knob sets the volume and clamps at the stops', (tester) async {
+  testWidgets('the volume slider sets the volume', (tester) async {
     final transport = Transport(600);
-    final at = await _pumpDeck(tester, transport);
+    await _pumpControls(tester, transport);
 
-    // Straight up is the middle of the 270° arc.
-    final gesture = await tester.startGesture(at(330, 905 - 60));
-    expect(transport.volume, closeTo(0.5, 0.001));
-    // Pointer moves are relative to the knob centre, so leaving the knob still turns it.
-    await gesture.moveTo(at(330 + 60, 905));
-    expect(transport.volume, closeTo(225 / 270, 0.001));
-    await gesture.moveTo(at(330 - 10, 905 + 300));
+    final bar = tester.getRect(find.byKey(const Key('volume')));
+    final gesture = await tester.startGesture(bar.center);
+    await gesture.moveTo(bar.centerLeft - const Offset(40, 0));
+    await tester.pump();
     expect(transport.volume, 0);
     await gesture.up();
+    await tester.pump(const Duration(seconds: 1));
   });
 
-  testWidgets('scrolling over the knob changes the volume', (tester) async {
-    final transport = Transport(600);
-    final at = await _pumpDeck(tester, transport);
+  testWidgets('the load chip asks for a file', (tester) async {
+    var picks = 0;
+    await _pumpControls(tester, Transport(600), onLoad: () => picks++);
 
-    final before = transport.volume;
-    await tester.sendEventToBinding(PointerScrollEvent(position: at(330, 905), scrollDelta: const Offset(0, 150)));
-    expect(transport.volume, closeTo(before - 0.1, 0.001));
+    await tester.tap(find.byKey(const Key('load')));
+    expect(picks, 1);
   });
 
   testWidgets('clicking the label asks for a file', (tester) async {
@@ -128,7 +155,7 @@ void main() {
   });
 
   testWidgets('keyboard shortcuts on the player screen', (tester) async {
-    await tester.pumpWidget(const ReelPlayerApp());
+    await tester.pumpWidget(_player(Transport(600, startAt: 100)));
     await tester.pump();
     final transport = (tester.widget<TapeDeck>(find.byType(TapeDeck))).transport;
     final start = transport.time;
@@ -142,6 +169,16 @@ void main() {
     expect(transport.time, closeTo(start - 15, 0.05));
     await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
     expect(transport.time, closeTo(start + 15, 0.05));
+  });
+
+  testWidgets('the player lays out on a phone-sized screen', (tester) async {
+    final view = tester.view;
+    view.physicalSize = const Size(390, 844);
+    addTearDown(view.resetPhysicalSize);
+    await tester.pumpWidget(_player(Transport(600, startAt: 100)));
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+    expect(find.byKey(const Key('load')), findsOneWidget);
   });
 
   test('formatTime matches the web version', () {

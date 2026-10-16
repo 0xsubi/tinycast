@@ -151,14 +151,22 @@ TextStyle printed({double size = 17, double spacing = 5}) => helvetica(size: siz
 
 final Map<InlineSpan, TextPainter> _textCache = {};
 
-/// Draw [span] with its alphabetic baseline at [y], anchored like SVG `text-anchor`.
-void drawText(Canvas canvas, InlineSpan span, double x, double y, {Anchor anchor = Anchor.start}) {
+TextPainter _laidOut(InlineSpan span) {
   var tp = _textCache[span];
   if (tp == null) {
     if (_textCache.length > 256) _textCache.clear();
     tp = TextPainter(text: span, textDirection: TextDirection.ltr)..layout();
     _textCache[span] = tp;
   }
+  return tp;
+}
+
+/// Width of [text] set in [style].
+double measureString(String text, TextStyle style) => _laidOut(TextSpan(text: text, style: style)).width;
+
+/// Draw [span] with its alphabetic baseline at [y], anchored like SVG `text-anchor`.
+void drawText(Canvas canvas, InlineSpan span, double x, double y, {Anchor anchor = Anchor.start}) {
+  final tp = _laidOut(span);
   final baseline = tp.computeDistanceToActualBaseline(TextBaseline.alphabetic);
   final dx = switch (anchor) {
     Anchor.start => 0.0,

@@ -1,10 +1,11 @@
 import 'dart:math' as math;
 import 'dart:ui';
 
-// All deck coordinates live in a single 2000 × 1260 view box. The upper 815
-// units reproduce the reference photo's framing; the rest is the control strip.
+// All deck coordinates live in a single 2000 × 940 view box. The upper 752
+// units reproduce the reference photo's framing; below the seam is a short
+// strip carrying the episode label.
 const double viewW = 2000;
-const double viewH = 1260;
+const double viewH = 940;
 
 enum Side { l, r }
 

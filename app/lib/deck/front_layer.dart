@@ -30,8 +30,8 @@ class FrontPainter extends DeckPainter {
     _lid(canvas);
     _screw(canvas, 40, 688, 18);
     _screw(canvas, 1964, 688, 62);
-    _screw(canvas, 40, 1222, -34);
-    _screw(canvas, 1964, 1222, 8);
+    _screw(canvas, 40, 902, -34);
+    _screw(canvas, 1964, 902, 8);
   }
 
   /// Raised outer rim. Circular, so it is lit statically on top of the spinning flange.

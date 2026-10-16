@@ -12,6 +12,10 @@ class Transport extends ChangeNotifier {
   Transport(this.duration, {double startAt = 0}) : _simTime = startAt;
 
   bool playing = false;
+
+  /// A stream is loading or refilling its buffer: playback is wanted but the
+  /// tape is not moving yet.
+  bool buffering = false;
   double duration;
   double volume = 0.72;
 
@@ -87,8 +91,20 @@ class Transport extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Thread a new audio source. Completes with its duration in seconds.
-  Future<double> load(AudioSource source) async {
+  /// Set the tape length (and position) shown while no audio is loaded, or
+  /// while a stream is still buffering.
+  void cue(double length, {double at = 0}) {
+    duration = length;
+    if (_player == null) {
+      _simTime = at.clamp(0.0, length).toDouble();
+      _simAnchor = _now;
+    }
+    notifyListeners();
+  }
+
+  /// Thread a new audio source. Completes with its duration in seconds. With
+  /// [autoplay], playback starts as soon as enough has buffered.
+  Future<double> load(AudioSource source, {bool autoplay = false}) async {
     await _unload();
     final player = AudioPlayer();
     _player = player;
@@ -101,15 +117,19 @@ class Transport extends ChangeNotifier {
       // just_audio stays "playing" at the end of a track; park it instead.
       if (ended && s.playing) unawaited(player.pause());
       final now = s.playing && !ended;
-      if (now != playing) {
+      final waiting = s.processingState == ProcessingState.loading || s.processingState == ProcessingState.buffering;
+      if (now != playing || waiting != buffering) {
         playing = now;
+        buffering = waiting;
         notifyListeners();
       }
     });
 
     try {
       await player.setVolume(volume);
-      final d = await player.setAudioSource(source);
+      final loading = player.setAudioSource(source);
+      if (autoplay) unawaited(player.play().catchError((_) {}));
+      final d = await loading;
       if (_player != player) return duration;
       duration = d == null ? 0 : d.inMicroseconds / 1e6;
       notifyListeners();
@@ -127,6 +147,7 @@ class Transport extends ChangeNotifier {
     await _stateSub?.cancel();
     _stateSub = null;
     playing = false;
+    buffering = false;
     await old.dispose();
   }
 
