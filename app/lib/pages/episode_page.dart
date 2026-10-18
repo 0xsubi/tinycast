@@ -84,7 +84,7 @@ class EpisodePage extends StatelessWidget {
       body: SingleChildScrollView(
         child: ContentColumn(
           child: Padding(
-            padding: EdgeInsets.only(top: appBarClearance(context), bottom: nowPlayingClearance),
+            padding: EdgeInsets.only(top: appBarClearance(context), bottom: bottomClearance(context)),
             child: LayoutBuilder(
               builder: (context, constraints) {
                 final wide = constraints.maxWidth >= 720;
@@ -272,12 +272,12 @@ Future<void> confirmDeleteDownload(BuildContext context, Podcast podcast, Podcas
     title: 'Delete download?',
     message: '“${episode.title}” will be removed from this device. You can still stream it.',
     actions: [
-      GlassDialogAction(label: 'Cancel', onPressed: () => Navigator.of(context).pop()),
+      GlassDialogAction(label: 'Cancel', onPressed: () => Navigator.of(context, rootNavigator: true).pop()),
       GlassDialogAction(
         label: 'Delete',
         isDestructive: true,
         onPressed: () {
-          Navigator.of(context).pop();
+          Navigator.of(context, rootNavigator: true).pop();
           downloads.delete(podcast, episode);
         },
       ),

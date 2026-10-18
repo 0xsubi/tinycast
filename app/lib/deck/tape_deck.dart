@@ -143,6 +143,12 @@ class _TapeDeckState extends State<TapeDeck> with SingleTickerProviderStateMixin
   }
 
   @override
+  void didUpdateWidget(TapeDeck oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.episode.title != widget.episode.title) _frame.titleSince = _frame.clock;
+  }
+
+  @override
   void dispose() {
     _ticker.dispose();
     _frame.dispose();
@@ -157,6 +163,7 @@ class _TapeDeckState extends State<TapeDeck> with SingleTickerProviderStateMixin
     final gap = _last == null ? 0.0 : (elapsed - _last!).inMicroseconds / 1e6;
     final dt = gap.clamp(0.0, 0.05);
     _last = elapsed;
+    f.clock = elapsed.inMicroseconds / 1e6;
     t.tick();
 
     final dur = math.max(1.0, t.duration);
@@ -176,6 +183,7 @@ class _TapeDeckState extends State<TapeDeck> with SingleTickerProviderStateMixin
       _display = actual;
       travel = _motor * tapeSpeed * dt;
     }
+    if (t.winding != 0 && diff.abs() <= _snap) t.wound();
 
     final p = clamp01(_display / dur);
     f.radius[Side.l] = packRadius(1 - p);
@@ -291,6 +299,7 @@ class _TapeDeckState extends State<TapeDeck> with SingleTickerProviderStateMixin
               layer(DisplayPainter(band, _frame, widget.episode)),
               layer(StripPainter(strip, _frame)),
               layer(LabelPainter(strip, transport: _transport, episode: widget.episode)),
+              layer(LabelTitlePainter(strip, _frame, widget.episode)),
               layer(LabelHintPainter(strip, _frame)),
               Positioned.fill(
                 child: IgnorePointer(

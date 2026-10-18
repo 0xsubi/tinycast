@@ -19,6 +19,10 @@ class Transport extends ChangeNotifier {
   bool buffering = false;
   double duration;
 
+  /// Which way the tape is winding after a [skip]: -1 back, 1 forward, 0 not
+  /// winding. The deck calls [wound] once its reels have caught up.
+  int winding = 0;
+
   AudioPlayer? _player;
   StreamSubscription<PlayerState>? _stateSub;
   double _simTime;
@@ -83,7 +87,18 @@ class Transport extends ChangeNotifier {
     }
   }
 
-  void skip(double delta) => seek(time + delta);
+  void skip(double delta) {
+    seek(time + delta);
+    winding = delta.sign.toInt();
+    notifyListeners();
+  }
+
+  /// The deck has finished winding to the [skip]'s target.
+  void wound() {
+    if (winding == 0) return;
+    winding = 0;
+    notifyListeners();
+  }
 
   /// Set the tape length (and position) shown while no audio is loaded, or
   /// while a stream is still buffering.
@@ -96,9 +111,10 @@ class Transport extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Thread a new audio source. Completes with its duration in seconds. With
-  /// [autoplay], playback starts as soon as enough has buffered.
-  Future<double> load(AudioSource source, {bool autoplay = false}) async {
+  /// Thread a new audio source, positioned [startAt] seconds in. Completes
+  /// with its duration in seconds. With [autoplay], playback starts as soon as
+  /// enough has buffered.
+  Future<double> load(AudioSource source, {bool autoplay = false, double startAt = 0}) async {
     await _unload();
     final player = AudioPlayer();
     _player = player;
@@ -120,7 +136,10 @@ class Transport extends ChangeNotifier {
     });
 
     try {
-      final loading = player.setAudioSource(source);
+      final loading = player.setAudioSource(
+        source,
+        initialPosition: startAt > 0 ? Duration(microseconds: (startAt * 1e6).round()) : null,
+      );
       if (autoplay) unawaited(player.play().catchError((_) {}));
       final d = await loading;
       if (_player != player) return duration;

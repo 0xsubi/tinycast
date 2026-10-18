@@ -92,6 +92,27 @@ void main() {
     expect(() => parseSearchResults('<html>'), throwsA(isA<FeedError>()));
   });
 
+  test('reads a genre chart and orders its lookup by rank', () {
+    final ids = parseChart('''{"feed": {"entry": [
+      {"im:name": {"label": "First"}, "id": {"label": "https://x", "attributes": {"im:id": "111"}}},
+      {"im:name": {"label": "Second"}, "id": {"label": "https://y", "attributes": {"im:id": "222"}}},
+      {"im:name": {"label": "Broken"}}
+    ]}}''');
+    expect(ids, ['111', '222']);
+    // A chart of one is an object, not a list; an empty chart has no entries.
+    expect(parseChart('{"feed": {"entry": {"id": {"attributes": {"im:id": "9"}}}}}'), ['9']);
+    expect(parseChart('{"feed": {}}'), isEmpty);
+    expect(() => parseChart('<html>'), throwsA(isA<FeedError>()));
+
+    // The lookup answers in its own order.
+    final shows = parseLookupResults('''{"results": [
+      {"collectionId": 222, "collectionName": "Second", "feedUrl": "https://example.com/2.xml"},
+      {"collectionId": 333, "collectionName": "No feed"},
+      {"collectionId": 111, "collectionName": "First", "feedUrl": "https://example.com/1.xml"}
+    ]}''', ids);
+    expect(shows.map((s) => s.title), ['First', 'Second']);
+  });
+
   test('flattens show-notes HTML', () {
     expect(plainText('<p>One&nbsp;two</p><ul><li>a</li><li>b &#8212; c</li></ul>'), 'One two\n\n• a\n• b — c');
   });

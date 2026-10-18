@@ -8,13 +8,26 @@ import 'style.dart';
 /// Widest the browse pages' content grows on a big window.
 const double contentWidth = 960;
 
-/// Room left under scrolling content for the floating now-playing bar.
-const double nowPlayingClearance = 110;
+/// Room left under scrolling content for what floats at the bottom: the
+/// now-playing bar, and the tab bar on the tabs' pages.
+double bottomClearance(BuildContext context) => InTabShell.of(context) ? 180 : 110;
 
-/// Opens the tape deck, unless it is already showing.
+/// Marks pages shown inside the tab shell, which floats the tab bar and the
+/// now-playing bar over them itself.
+class InTabShell extends InheritedWidget {
+  const InTabShell({super.key, required super.child});
+
+  static bool of(BuildContext context) => context.dependOnInheritedWidgetOfExactType<InTabShell>() != null;
+
+  @override
+  bool updateShouldNotify(InTabShell oldWidget) => false;
+}
+
+/// Opens the tape deck over everything, tab bar included, unless it is
+/// already showing.
 void openPlayer(BuildContext context) {
   if (ModalRoute.of(context)?.settings.name == PlayerPage.route) return;
-  Navigator.of(context).push(
+  Navigator.of(context, rootNavigator: true).push(
     CupertinoPageRoute<void>(
       settings: const RouteSettings(name: PlayerPage.route),
       fullscreenDialog: true,
@@ -24,7 +37,7 @@ void openPlayer(BuildContext context) {
 }
 
 /// A browse page: glass app bar with a back button over a [Backdrop], and the
-/// now-playing bar floating at the bottom.
+/// now-playing bar floating at the bottom (outside the tab shell, which has its own).
 class GlassPageFrame extends StatelessWidget {
   const GlassPageFrame({super.key, required this.body, this.artwork, this.title});
 
@@ -58,7 +71,9 @@ class GlassPageFrame extends StatelessWidget {
                     ),
             )
           : null,
-      bodyOverlays: const [Positioned(left: 16, right: 16, bottom: 20, child: Center(child: NowPlayingBar()))],
+      bodyOverlays: InTabShell.of(context)
+          ? null
+          : const [Positioned(left: 16, right: 16, bottom: 20, child: Center(child: NowPlayingBar()))],
       body: body,
     );
   }

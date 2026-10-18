@@ -5,7 +5,8 @@ import 'deck/paint_kit.dart';
 import 'deck/textures.dart';
 import 'library/downloads.dart';
 import 'library/library.dart';
-import 'pages/search_page.dart';
+import 'pages/interests_page.dart';
+import 'pages/tab_shell.dart';
 import 'playback/playback.dart';
 import 'podcast/directory.dart';
 import 'ui/style.dart';
@@ -43,7 +44,7 @@ class ReelPlayerApp extends StatefulWidget {
 
 class _ReelPlayerAppState extends State<ReelPlayerApp> {
   late final PodcastDirectory _directory = widget.directory ?? ITunesDirectory();
-  late final Playback _playback = widget.playback ?? Playback();
+  late final Playback _playback = widget.playback ?? Playback(library: widget.library);
   late final Downloads _downloads = widget.downloads ?? Downloads(widget.library);
 
   @override
@@ -75,7 +76,7 @@ class _ReelPlayerAppState extends State<ReelPlayerApp> {
         ),
         // Every route gets a Material ancestor for text styles and selection.
         builder: (context, child) => Material(type: MaterialType.transparency, child: child),
-        home: widget.home ?? const SearchPage(),
+        home: widget.home ?? const FirstRun(child: TabShell()),
       ),
     );
   }

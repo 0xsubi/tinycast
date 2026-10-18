@@ -40,17 +40,19 @@ class SavedEpisode {
   );
 }
 
-/// The user's library — subscriptions, favorites, downloads and settings —
-/// kept in SQLite and mirrored in memory so pages can read it synchronously.
+/// The user's library — subscriptions, favorites, downloads, listening
+/// progress and settings — kept in SQLite and mirrored in memory so pages can
+/// read it synchronously.
 class Library extends ChangeNotifier {
-  Library._(this._db, this._subscriptions, this._episodes, this._settings);
+  Library._(this._db, this._subscriptions, this._episodes, this._progress, this._settings);
 
   final Database _db;
   final List<_Subscription> _subscriptions;
   final Map<String, SavedEpisode> _episodes;
+  final Map<String, double> _progress;
   final Map<String, String> _settings;
 
-  static const int _version = 1;
+  static const int _version = 2;
 
   /// Opens (creating if needed) the library database. Tests pass an FFI
   /// [factory] and [inMemoryDatabasePath].
@@ -59,7 +61,7 @@ class Library extends ChangeNotifier {
     final dbPath = path ?? p.join((await getApplicationSupportDirectory()).path, 'tinycast.db');
     final db = await dbFactory.openDatabase(
       dbPath,
-      options: OpenDatabaseOptions(version: _version, onCreate: _create),
+      options: OpenDatabaseOptions(version: _version, onCreate: _create, onUpgrade: _upgrade),
     );
     final subscriptions = [
       for (final row in await db.query('subscriptions', orderBy: 'subscribed_at DESC'))
@@ -69,8 +71,12 @@ class Library extends ChangeNotifier {
       for (final row in await db.query('episodes'))
         _key(row['feed']! as String, row['id']! as String): _savedFromRow(row),
     };
+    final progress = {
+      for (final row in await db.query('progress'))
+        _key(row['feed']! as String, row['id']! as String): (row['position']! as num).toDouble(),
+    };
     final settings = {for (final row in await db.query('settings')) row['key']! as String: row['value']! as String};
-    return Library._(db, subscriptions, episodes, settings);
+    return Library._(db, subscriptions, episodes, progress, settings);
   }
 
   static Future<void> _create(Database db, int version) async {
@@ -111,8 +117,24 @@ class Library extends ChangeNotifier {
           PRIMARY KEY (feed, id)
         )''')
       ..execute('CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
+    _createProgress(batch);
     await batch.commit(noResult: true);
   }
+
+  static Future<void> _upgrade(Database db, int from, int to) async {
+    final batch = db.batch();
+    if (from < 2) _createProgress(batch);
+    await batch.commit(noResult: true);
+  }
+
+  static void _createProgress(Batch batch) => batch.execute('''
+    CREATE TABLE progress (
+      feed TEXT NOT NULL,
+      id TEXT NOT NULL,
+      position REAL NOT NULL,
+      updated_at INTEGER NOT NULL,
+      PRIMARY KEY (feed, id)
+    )''');
 
   Future<void> close() => _db.close();
 
@@ -152,6 +174,11 @@ class Library extends ChangeNotifier {
   List<SavedEpisode> get favorites =>
       _episodes.values.where((e) => e.isFavorite).toList()..sort((a, b) => b.favoritedAt!.compareTo(a.favoritedAt!));
 
+  /// Downloads, most recently downloaded first.
+  List<SavedEpisode> get downloaded =>
+      _episodes.values.where((e) => e.isDownloaded).toList()
+        ..sort((a, b) => (b.downloadedAt ?? DateTime(0)).compareTo(a.downloadedAt ?? DateTime(0)));
+
   bool isFavorite(Podcast podcast, PodcastEpisode episode) => saved(podcast, episode)?.isFavorite ?? false;
 
   Future<void> favorite(Podcast podcast, PodcastEpisode episode) =>
@@ -185,6 +212,31 @@ class Library extends ChangeNotifier {
     _episodes[key] = next;
     notifyListeners();
     await _db.insert('episodes', _savedToRow(next), conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  /* ------------------------------------------------------------- progress -- */
+
+  /// How far into [episode] the user got, in seconds, if they left it part-way.
+  double? progress(Podcast podcast, PodcastEpisode episode) => _progress[_key(podcast.feed.toString(), episode.id)];
+
+  /// Records how far into [episode] the user got; null forgets it. Not
+  /// notified, since it changes every few seconds while a tape plays.
+  Future<void> setProgress(Podcast podcast, PodcastEpisode episode, double? position) async {
+    final feed = podcast.feed.toString();
+    final key = _key(feed, episode.id);
+    if (position == null) {
+      if (_progress.remove(key) == null) return;
+      await _db.delete('progress', where: 'feed = ? AND id = ?', whereArgs: [feed, episode.id]);
+      return;
+    }
+    if (_progress[key] == position) return;
+    _progress[key] = position;
+    await _db.insert('progress', {
+      'feed': feed,
+      'id': episode.id,
+      'position': position,
+      'updated_at': DateTime.now().millisecondsSinceEpoch,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   /* ------------------------------------------------------------- settings -- */

@@ -10,10 +10,12 @@ import 'package:tinycast/library/downloads.dart';
 import 'package:tinycast/library/library.dart';
 import 'package:tinycast/main.dart';
 import 'package:tinycast/pages/episode_page.dart';
+import 'package:tinycast/pages/interests_page.dart';
 import 'package:tinycast/pages/player_page.dart';
 import 'package:tinycast/pages/podcast_page.dart';
 import 'package:tinycast/playback/playback.dart';
 import 'package:tinycast/podcast/directory.dart';
+import 'package:tinycast/podcast/interests.dart';
 import 'package:tinycast/podcast/models.dart';
 
 import 'test_library.dart';
@@ -63,6 +65,14 @@ class _FakeDirectory implements PodcastDirectory {
   }
 
   @override
+  Future<List<Podcast>> top(int genre) async {
+    charts.add(genre);
+    return [Podcast(title: 'Top show $genre', feed: Uri.parse('https://example.com/top-$genre.xml'), author: 'Charts')];
+  }
+
+  final List<int> charts = [];
+
+  @override
   Future<PodcastFeed> feed(Podcast podcast) async => _feed;
 }
 
@@ -71,10 +81,13 @@ class _FakeTransport extends Transport {
   _FakeTransport() : super(0);
 
   final List<AudioSource> loaded = [];
+  final List<double> startedAt = [];
 
   @override
-  Future<double> load(AudioSource source, {bool autoplay = false}) async {
+  Future<double> load(AudioSource source, {bool autoplay = false, double startAt = 0}) async {
     loaded.add(source);
+    startedAt.add(startAt);
+    seek(startAt);
     if (autoplay) play();
     return duration;
   }
@@ -108,6 +121,14 @@ void main() {
     folder = Directory.systemTemp.createTempSync('tinycast_downloads');
   });
 
+  /// Past onboarding, having skipped choosing interests.
+  Future<void> onboarded() => chooseInterests(library, const []);
+
+  Future<void> openTab(WidgetTester tester, String label) async {
+    await tester.tap(find.descendant(of: find.byKey(const Key('tab-bar')), matching: find.text(label)).first);
+    await tester.pumpAndSettle();
+  }
+
   setUp(() {
     final view = TestWidgetsFlutterBinding.instance.platformDispatcher.views.first;
     view.physicalSize = const Size(1240, 880);
@@ -115,6 +136,7 @@ void main() {
   });
 
   testWidgets('search → show → episode → play opens the deck', (tester) async {
+    await onboarded();
     final directory = _FakeDirectory();
     final transport = _FakeTransport();
     await tester.pumpWidget(
@@ -127,6 +149,7 @@ void main() {
     await tester.pump();
 
     // Search, debounced while typing.
+    await openTab(tester, 'Search');
     await tester.enterText(find.byType(EditableText), 'gadgets');
     await tester.pump(const Duration(milliseconds: 500));
     await tester.pump();
@@ -184,7 +207,92 @@ void main() {
     expect(find.byType(PlayerPage), findsOneWidget);
   });
 
-  testWidgets('the featured show opens before any search', (tester) async {
+  testWidgets('an episode left part-way resumes ten seconds back', (tester) async {
+    final transport = _FakeTransport()..duration = 3725;
+    final playback = Playback(transport: transport, library: library);
+    final first = _feed.episodes[0];
+    final second = _feed.episodes[1];
+
+    await playback.playEpisode(_show, first);
+    expect(transport.startedAt.last, 0);
+    transport.seek(600);
+    transport.pause();
+    expect(library.progress(_show, first), closeTo(600, 0.01));
+
+    // Saved every few seconds while playing, and on switching episodes.
+    transport.play();
+    transport.seek(900);
+    await tester.pump(const Duration(seconds: 6));
+    expect(library.progress(_show, first), closeTo(900, 0.5));
+    transport.seek(1200);
+    await playback.playEpisode(_show, second);
+    expect(library.progress(_show, first), closeTo(1200, 0.01));
+
+    await playback.playEpisode(_show, first);
+    expect(transport.startedAt.last, closeTo(1190, 0.01));
+    expect(transport.time, closeTo(1190, 0.01));
+
+    // Stopping at the very end counts as finished.
+    transport.seek(3720);
+    transport.pause();
+    expect(library.progress(_show, first), isNull);
+    playback.dispose();
+  });
+
+  testWidgets('first run asks for interests, then shows their top shows', (tester) async {
+    final directory = _FakeDirectory();
+    await tester.pumpWidget(
+      ReelPlayerApp(
+        library: library,
+        directory: directory,
+        playback: Playback(transport: _FakeTransport()),
+      ),
+    );
+    await tester.pump();
+    expect(find.byType(InterestsPage), findsOneWidget);
+    expect(find.text('What do you like to listen to?'), findsOneWidget);
+
+    // Nothing picked yet, so Continue does nothing.
+    await tester.tap(find.byKey(const Key('save-interests')), warnIfMissed: false);
+    await tester.pump();
+    expect(find.byType(InterestsPage), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('interest-1487'))); // History
+    await tester.tap(find.byKey(const ValueKey('interest-1318'))); // Technology
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('save-interests')));
+    await tester.pumpAndSettle();
+    expect(chosenInterests(library)!.map((i) => i.name), ['History', 'Technology']);
+
+    // Home: a row per interest, in the order picked.
+    expect(find.byType(InterestsPage), findsNothing);
+    expect(directory.charts, [1487, 1318]);
+    expect(find.text('HISTORY'), findsOneWidget);
+    expect(find.text('TECHNOLOGY'), findsOneWidget);
+    expect(tester.getTopLeft(find.text('HISTORY')).dy, lessThan(tester.getTopLeft(find.text('TECHNOLOGY')).dy));
+    await tester.tap(find.text('Top show 1487'));
+    await tester.pumpAndSettle();
+    expect(find.byType(PodcastPage), findsOneWidget);
+    await tester.tap(find.byKey(const Key('back')));
+    await tester.pumpAndSettle();
+
+    // Edit: drop History, add Fashion.
+    await tester.tap(find.byKey(const Key('edit-interests')));
+    await tester.pumpAndSettle();
+    expect(find.byType(InterestsPage), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('interest-1487')));
+    await tester.tap(find.byKey(const ValueKey('interest-1459')));
+    await tester.pump();
+    await tester.tap(find.byKey(const Key('save-interests')));
+    await tester.pumpAndSettle();
+    expect(find.byType(InterestsPage), findsNothing);
+    expect(find.text('HISTORY'), findsNothing);
+    expect(find.text('TECHNOLOGY'), findsOneWidget);
+    await tester.scrollUntilVisible(find.text('FASHION & BEAUTY'), 200, scrollable: find.byType(Scrollable).first);
+    expect(find.text('FASHION & BEAUTY'), findsOneWidget);
+  });
+
+  testWidgets('first run can be skipped', (tester) async {
     await tester.pumpWidget(
       ReelPlayerApp(
         library: library,
@@ -193,6 +301,32 @@ void main() {
       ),
     );
     await tester.pump();
+    await tester.tap(find.byKey(const Key('skip-interests')));
+    await tester.pumpAndSettle();
+    expect(find.byType(InterestsPage), findsNothing);
+    expect(find.text('Pick a few topics to see their top shows here.'), findsOneWidget);
+    expect(chosenInterests(library), isEmpty);
+  });
+
+  testWidgets('the featured show opens before any search', (tester) async {
+    await onboarded();
+    await tester.pumpWidget(
+      ReelPlayerApp(
+        library: library,
+        directory: _FakeDirectory(),
+        playback: Playback(transport: _FakeTransport()),
+      ),
+    );
+    await tester.pump();
+
+    // On a wide window the tab bar stays compact, centred.
+    double x(String label) =>
+        tester.getCenter(find.descendant(of: find.byKey(const Key('tab-bar')), matching: find.text(label)).first).dx;
+    expect(x('Home'), greaterThan((1240 - 380) / 2));
+    expect(x('Search'), lessThan((1240 + 380) / 2));
+    expect((x('Home') + x('Search')) / 2, closeTo(1240 / 2, 1));
+
+    await openTab(tester, 'Search');
     await tester.tap(find.byKey(const Key('featured')));
     await tester.pumpAndSettle();
     expect(find.byType(PodcastPage), findsOneWidget);
@@ -200,6 +334,7 @@ void main() {
   });
 
   testWidgets('subscribe, sort, favorite and download', (tester) async {
+    await onboarded();
     final downloads = _FakeDownloads(library, folder);
     await tester.pumpWidget(
       ReelPlayerApp(
@@ -210,9 +345,14 @@ void main() {
       ),
     );
     await tester.pump();
+    expect(find.text('Subscribe to shows to see their newest episodes here.'), findsOneWidget);
     expect(find.text('Shows you subscribe to will appear here.'), findsOneWidget);
+    await openTab(tester, 'Library');
+    await tester.tap(find.byKey(const Key('library-favorites')));
+    await tester.pumpAndSettle();
     expect(find.text('Tap the heart on an episode to keep it here.'), findsOneWidget);
 
+    await openTab(tester, 'Search');
     await tester.enterText(find.byType(EditableText), 'gadgets');
     await tester.pump(const Duration(milliseconds: 500));
     await tester.pump();
@@ -248,6 +388,16 @@ void main() {
     expect(find.byKey(const Key('delete-download')), findsOneWidget);
     expect(find.textContaining('Downloaded'), findsOneWidget);
 
+    // The download is listed in the library; the Search tab keeps its place meanwhile.
+    await openTab(tester, 'Library');
+    await openTab(tester, 'Library'); // Again: back to the menu from Favorites.
+    expect(find.descendant(of: find.byKey(const Key('library-downloads')), matching: find.text('1')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('library-downloads')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('downloaded-ep-12')), findsOneWidget);
+    await openTab(tester, 'Search');
+    expect(find.byType(EpisodePage), findsOneWidget);
+
     // Delete the download, after confirming.
     final file = File(library.downloadPath(_show, _feed.episodes.first)!);
     await tester.tap(find.byKey(const Key('delete-download')));
@@ -263,19 +413,27 @@ void main() {
     // Still a favorite.
     expect(library.isFavorite(_show, _feed.episodes.first), isTrue);
 
-    // Home now lists the show and the episode.
-    await tester.tap(find.byKey(const Key('back')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('back')));
-    await tester.pumpAndSettle();
-    await tester.enterText(find.byType(EditableText), '');
-    await tester.pump(const Duration(milliseconds: 500));
-    await tester.pump();
-    expect(find.byKey(const Key('your-podcasts')), findsOneWidget);
+    // Home now lists the show and its newest episode, one per show.
+    await openTab(tester, 'Home');
     expect(
       find.descendant(of: find.byKey(const Key('your-podcasts')), matching: find.text('Gadget Hour')),
       findsOneWidget,
     );
+    expect(find.byKey(const ValueKey('latest-ep-12')), findsOneWidget);
+    expect(find.byKey(const ValueKey('latest-ep-11')), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('latest-ep-12')));
+    await tester.pumpAndSettle();
+    expect(find.byType(EpisodePage), findsOneWidget);
+    expect(find.text('Season 2'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('back')));
+    await tester.pumpAndSettle();
+
+    // The favorite is in the library.
+    await openTab(tester, 'Library');
+    await tester.tap(find.byKey(const Key('back')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('library-favorites')));
+    await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('favorite-ep-12')), findsOneWidget);
 
     // Opening a favorite works without the feed.

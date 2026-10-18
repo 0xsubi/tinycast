@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/widgets.dart';
 import 'package:just_audio/just_audio.dart';
@@ -21,14 +22,38 @@ class NowPlaying {
   final PodcastEpisode? episode;
 }
 
+/// Played back again this far before where the user left off, in seconds.
+const double _rewind = 10;
+
+/// Stopped within this many seconds of the end counts as finished.
+const double _finished = 15;
+
+const Duration _saveEvery = Duration(seconds: 5);
+
 /// App-wide playback: one deck, shared by every page, so audio keeps running
-/// while the user browses.
+/// while the user browses. With a [library], remembers where each episode was
+/// left and picks up a little before it.
 class Playback extends ChangeNotifier {
-  Playback({Transport? transport}) : transport = transport ?? Transport(0);
+  Playback({Transport? transport, this.library}) : transport = transport ?? Transport(0) {
+    if (library == null) return;
+    this.transport.addListener(_onTransport);
+    _lifecycle = AppLifecycleListener(
+      onStateChange: (state) {
+        if (state != AppLifecycleState.resumed) _saveProgress();
+      },
+    );
+  }
 
   final Transport transport;
+  final Library? library;
   NowPlaying? current;
   String? error;
+
+  AppLifecycleListener? _lifecycle;
+  Timer? _saver;
+
+  /// The transport is playing [current], so its position is [current]'s.
+  bool _threaded = false;
 
   /// Bumped by every load, so a slow load never replaces a newer one.
   int _loads = 0;
@@ -44,6 +69,8 @@ class Playback extends ChangeNotifier {
       return;
     }
     final load = ++_loads;
+    _saveProgress();
+    _threaded = false;
     _swapRelease(null);
     current = NowPlaying(
       label: Episode(show: podcast.title, tag: _tag(episode), title: episode.title),
@@ -52,13 +79,15 @@ class Playback extends ChangeNotifier {
       episode: episode,
     );
     error = null;
+    final resume = math.max(0.0, (library?.progress(podcast, episode) ?? 0) - _rewind);
     // Show the feed's running time while the stream buffers.
-    transport.cue(episode.duration ?? 0);
+    transport.cue(episode.duration ?? 0, at: resume);
     notifyListeners();
-    await _thread(
+    _threaded = await _thread(
       load,
       file != null ? AudioSource.file(file) : AudioSource.uri(episode.audio),
       file != null ? 'Could not play the downloaded file' : 'Could not stream this episode',
+      startAt: resume,
     );
   }
 
@@ -66,6 +95,8 @@ class Playback extends ChangeNotifier {
   /// the file is no longer needed.
   Future<void> playFile(AudioSource source, String name, {VoidCallback? release}) async {
     final load = ++_loads;
+    _saveProgress();
+    _threaded = false;
     _swapRelease(release);
     error = null;
     notifyListeners();
@@ -83,9 +114,9 @@ class Playback extends ChangeNotifier {
     previous?.call();
   }
 
-  Future<bool> _thread(int load, AudioSource source, String? failure) async {
+  Future<bool> _thread(int load, AudioSource source, String? failure, {double startAt = 0}) async {
     try {
-      await transport.load(source, autoplay: true);
+      await transport.load(source, autoplay: true, startAt: startAt);
       return load == _loads;
     } on LoadError catch (e) {
       if (load == _loads) {
@@ -96,8 +127,38 @@ class Playback extends ChangeNotifier {
     }
   }
 
+  /* ------------------------------------------------------------- progress -- */
+
+  /// Saves on every pause, and every few seconds while the tape runs.
+  void _onTransport() {
+    if (transport.playing) {
+      _saver ??= Timer.periodic(_saveEvery, (_) => _saveProgress());
+    } else {
+      _saver?.cancel();
+      _saver = null;
+      _saveProgress();
+    }
+  }
+
+  /// Records how far into the threaded episode the tape is, forgetting it
+  /// near the start (it would resume from the top anyway) and near the end.
+  void _saveProgress() {
+    final library = this.library;
+    final podcast = current?.podcast;
+    final episode = current?.episode;
+    if (library == null || podcast == null || episode == null || !_threaded) return;
+    final t = transport.time;
+    final d = transport.duration;
+    final keep = t > _rewind && (d <= 0 || t < d - _finished);
+    unawaited(library.setProgress(podcast, episode, keep ? t : null));
+  }
+
   @override
   void dispose() {
+    _saveProgress();
+    _saver?.cancel();
+    _lifecycle?.dispose();
+    transport.removeListener(_onTransport);
     _swapRelease(null);
     transport.dispose();
     super.dispose();

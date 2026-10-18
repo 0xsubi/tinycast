@@ -23,13 +23,18 @@ const double _labelTilt = -0.35;
 /// Room for text between the label's 24-unit margins.
 const double _labelText = 700 - 48;
 
+/// [style] with its type shrunk, no smaller than [minSize], to fit [text] in [width].
+TextStyle _shrink(String text, TextStyle style, double width, double minSize) {
+  final natural = measureString(text, style);
+  if (natural <= width) return style;
+  final size = style.fontSize!;
+  return style.copyWith(fontSize: (size * width / natural).clamp(minSize, size).toDouble());
+}
+
 /// Sets [text] in [style] within [width]: shrinks the type down to [minSize],
 /// then cuts the text short with an ellipsis if it still does not fit.
 (String, TextStyle) _fit(String text, TextStyle style, double width, double minSize) {
-  final natural = measureString(text, style);
-  if (natural <= width) return (text, style);
-  final size = style.fontSize!;
-  final fitted = style.copyWith(fontSize: (size * width / natural).clamp(minSize, size).toDouble());
+  final fitted = _shrink(text, style, width, minSize);
   var cut = text;
   while (cut.isNotEmpty && measureString(cut == text ? cut : '$cut…', fitted) > width) {
     cut = cut.substring(0, cut.length - 1).trimRight();
@@ -64,7 +69,6 @@ class LabelPainter extends DeckPainter {
       _labelText - measureString(episode.tag, tagStyle) - 24,
       16,
     );
-    final (title, titleStyle) = _fit(episode.title, typewriter(size: 36, color: rgb(0x251f17)), _labelText, 26);
     canvas.save();
     rotateAbout(canvas, _labelTilt, r.center.dx, r.center.dy);
     final paper = RRect.fromRectAndRadius(r, const Radius.circular(2));
@@ -79,7 +83,6 @@ class LabelPainter extends DeckPainter {
 
     drawString(canvas, show, showStyle, r.left + 24, r.top + 29);
     drawString(canvas, episode.tag, tagStyle, r.right - 24, r.top + 29, anchor: Anchor.end);
-    drawString(canvas, title, titleStyle, r.left + 24, r.top + 77);
     drawString(
       canvas,
       'STEREO · 7½ IPS · ${formatTime(transport.duration)}',
@@ -93,6 +96,79 @@ class LabelPainter extends DeckPainter {
   @override
   bool shouldRepaint(LabelPainter oldDelegate) =>
       oldDelegate.placement != placement || oldDelegate.transport != transport || oldDelegate.episode != episode;
+}
+
+/// Title type shrinks to this before it scrolls instead.
+const double _titleMinSize = 30;
+
+/// The marquee: a pause with the title's start showing, then a slow crawl
+/// left (view-box units a second) until the next copy, [_marqueeGap] behind,
+/// has taken the first one's place.
+const double _marqueeHold = 2.5;
+const double _marqueeSpeed = 45;
+const double _marqueeGap = 90;
+
+/// Where a title [textWidth] wide is drawn, relative to where it rests, [t]
+/// seconds into its marquee in a space [room] wide. A title that fits stays put.
+double marqueeOffset(double textWidth, double room, double t) {
+  if (textWidth <= room) return 0;
+  final travel = textWidth + _marqueeGap;
+  final s = t % (_marqueeHold + travel / _marqueeSpeed);
+  return s < _marqueeHold ? 0 : -(s - _marqueeHold) * _marqueeSpeed;
+}
+
+/// The label's typed title. One too long for the label scrolls through it,
+/// marquee style, fading in and out at the paper's edges.
+class LabelTitlePainter extends DeckPainter {
+  LabelTitlePainter(super.placement, this.frame, this.episode) : super(repaint: frame);
+
+  final DeckFrame frame;
+  final Episode episode;
+
+  @override
+  void paintDeck(Canvas canvas, Size view) {
+    final r = labelRect(view.width);
+    final title = episode.title;
+    final style = _shrink(title, typewriter(size: 36, color: rgb(0x251f17)), _labelText, _titleMinSize);
+    final width = measureString(title, style);
+    final x = r.left + 24;
+    const baseline = 77.0;
+    canvas.save();
+    rotateAbout(canvas, _labelTilt, r.center.dx, r.center.dy);
+    if (width <= _labelText) {
+      drawString(canvas, title, style, x, r.top + baseline);
+      canvas.restore();
+      return;
+    }
+    final offset = marqueeOffset(width, _labelText, frame.clock - frame.titleSince);
+    // Between the red rule and the blue one, nearly to the paper's edges.
+    final window = Rect.fromLTRB(r.left + 3, r.top + 42, r.right - 3, r.top + 83);
+    const fade = 22.0;
+    canvas
+      ..clipRect(window)
+      ..saveLayer(window, Paint());
+    drawString(canvas, title, style, x + offset, r.top + baseline);
+    drawString(canvas, title, style, x + offset + width + _marqueeGap, r.top + baseline);
+    final f = fade / window.width;
+    canvas
+      ..drawRect(
+        window,
+        Paint()
+          ..blendMode = BlendMode.dstIn
+          ..shader = boxLinear(window, 0, 0, 1, 0, [
+            (0, black.withValues(alpha: 0)),
+            (f, black),
+            (1 - f, black),
+            (1, black.withValues(alpha: 0)),
+          ]),
+      )
+      ..restore()
+      ..restore();
+  }
+
+  @override
+  bool shouldRepaint(LabelTitlePainter oldDelegate) =>
+      oldDelegate.placement != placement || oldDelegate.frame != frame || oldDelegate.episode != episode;
 }
 
 /// The label's "load episode" hint, which brightens on hover.

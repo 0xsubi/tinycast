@@ -294,7 +294,8 @@ class _SlotPainter extends CustomPainter {
 /* ---------------------------------------------------------------- keys -- */
 
 /// REW 15 · PLAY · PAUSE · FF 30, as chunky aluminium keys. PLAY stays
-/// latched down while the tape runs.
+/// latched down while the tape runs. The key doing the work is lit: REW or FF
+/// while the tape winds, else PLAY or PAUSE.
 class TransportKeys extends StatelessWidget {
   const TransportKeys({super.key, required this.transport});
 
@@ -304,47 +305,54 @@ class TransportKeys extends StatelessWidget {
   Widget build(BuildContext context) {
     return ListenableBuilder(
       listenable: transport,
-      builder: (context, _) => Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Expanded(
-            child: MetalKey(
-              key: const Key('rew'),
-              icon: CupertinoIcons.backward_fill,
-              caption: '15',
-              semanticLabel: 'Back 15 seconds',
-              onPressed: () => transport.skip(-15),
+      builder: (context, _) {
+        final winding = transport.winding;
+        Color? lit(bool on) => on ? accent : null;
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Expanded(
+              child: MetalKey(
+                key: const Key('rew'),
+                icon: CupertinoIcons.backward_fill,
+                caption: '15',
+                iconColor: lit(winding < 0),
+                semanticLabel: 'Back 15 seconds',
+                onPressed: () => transport.skip(-15),
+              ),
             ),
-          ),
-          Expanded(
-            child: MetalKey(
-              key: const Key('play'),
-              icon: CupertinoIcons.play_fill,
-              iconColor: accent,
-              semanticLabel: 'Play',
-              latched: transport.playing,
-              onPressed: transport.play,
+            Expanded(
+              child: MetalKey(
+                key: const Key('play'),
+                icon: CupertinoIcons.play_fill,
+                iconColor: lit(winding == 0 && transport.playing),
+                semanticLabel: 'Play',
+                latched: transport.playing,
+                onPressed: transport.play,
+              ),
             ),
-          ),
-          Expanded(
-            child: MetalKey(
-              key: const Key('pause'),
-              icon: CupertinoIcons.pause_fill,
-              semanticLabel: 'Pause',
-              onPressed: transport.pause,
+            Expanded(
+              child: MetalKey(
+                key: const Key('pause'),
+                icon: CupertinoIcons.pause_fill,
+                iconColor: lit(winding == 0 && !transport.playing),
+                semanticLabel: 'Pause',
+                onPressed: transport.pause,
+              ),
             ),
-          ),
-          Expanded(
-            child: MetalKey(
-              key: const Key('ff'),
-              icon: CupertinoIcons.forward_fill,
-              caption: '30',
-              semanticLabel: 'Forward 30 seconds',
-              onPressed: () => transport.skip(30),
+            Expanded(
+              child: MetalKey(
+                key: const Key('ff'),
+                icon: CupertinoIcons.forward_fill,
+                caption: '30',
+                iconColor: lit(winding > 0),
+                semanticLabel: 'Forward 30 seconds',
+                onPressed: () => transport.skip(30),
+              ),
             ),
-          ),
-        ],
-      ),
+          ],
+        );
+      },
     );
   }
 }
@@ -463,7 +471,11 @@ class _MetalKeyState extends State<MetalKey> with SingleTickerProviderStateMixin
                         children: [
                           // Engraved: light along the lower edge of each cut.
                           glyph(white.withValues(alpha: 0.75), const Offset(0, 1.2)),
-                          glyph(widget.iconColor ?? engraving, Offset.zero),
+                          TweenAnimationBuilder<Color?>(
+                            tween: ColorTween(end: widget.iconColor ?? engraving),
+                            duration: const Duration(milliseconds: 120),
+                            builder: (context, color, _) => glyph(color!, Offset.zero),
+                          ),
                         ],
                       ),
                     ),

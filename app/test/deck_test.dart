@@ -11,7 +11,7 @@ import 'package:tinycast/main.dart';
 import 'package:tinycast/pages/player_page.dart';
 import 'package:tinycast/playback/playback.dart';
 import 'package:tinycast/player/metal_controls.dart';
-import 'package:tinycast/ui/style.dart' show TabularText;
+import 'package:tinycast/ui/style.dart' show TabularText, accent;
 
 import 'test_library.dart';
 
@@ -26,6 +26,7 @@ Future<Offset Function(double, double)> _pumpDeck(
   WidgetTester tester,
   Transport transport, {
   VoidCallback? onPickFile,
+  Episode episode = _episode,
 }) async {
   await tester.pumpWidget(
     MaterialApp(
@@ -34,7 +35,7 @@ Future<Offset Function(double, double)> _pumpDeck(
           size: _deckSize,
           child: TapeDeck(
             transport: transport,
-            episode: _episode,
+            episode: episode,
             onPickFile: onPickFile ?? () {},
             onDropFiles: (_) {},
             unit: _unit,
@@ -116,6 +117,49 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
     expect(tester.getCenter(icon).dy, closeTo(rest, 0.01));
+  });
+
+  testWidgets('the active key is lit', (tester) async {
+    final transport = Transport(600, startAt: 100);
+    await _pumpControls(tester, transport);
+    Future<List<String>> lit() async {
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
+      return [
+        for (final key in ['rew', 'play', 'pause', 'ff'])
+          if (tester.widget<Icon>(find.descendant(of: find.byKey(Key(key)), matching: find.byType(Icon)).last).color ==
+              accent)
+            key,
+      ];
+    }
+
+    expect(await lit(), ['pause']);
+    transport.play();
+    expect(await lit(), ['play']);
+    transport.skip(30);
+    expect(await lit(), ['ff']);
+    transport.wound();
+    expect(await lit(), ['play']);
+    transport.skip(-15);
+    expect(await lit(), ['rew']);
+    transport.wound();
+    transport.pause();
+    expect(await lit(), ['pause']);
+  });
+
+  testWidgets('a skip stays lit until the reels have wound', (tester) async {
+    await tester.pumpWidget(_player(Transport(600, startAt: 100)));
+    await tester.pump();
+    final transport = (tester.widget<TapeDeck>(find.byType(TapeDeck))).transport;
+    await tester.tap(find.byKey(const Key('ff')));
+    for (var i = 0; i < 10; i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    expect(transport.winding, 1);
+    for (var i = 0; i < 150; i++) {
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    expect(transport.winding, 0);
   });
 
   testWidgets('dragging the seek slot seeks', (tester) async {
@@ -255,6 +299,37 @@ void main() {
     expect(supply.dx, closeTo(takeUp.dx, 1e-9));
     expect(supply.dy, lessThan(takeUp.dy));
     expect(place(const Offset(viewW, 0)).dy - place(Offset.zero).dy, closeTo(tall.mechanism.height, 1e-9));
+  });
+
+  testWidgets('a long title paints while it scrolls', (tester) async {
+    const long = Episode(
+      show: 'Fall of Civilizations Podcast',
+      tag: 'EP. 21',
+      title: '21. Majapahit – Empire of the Islands, and the long road from Java to the spice trade',
+    );
+    await _pumpDeck(tester, Transport(600), episode: long);
+    for (var i = 0; i < 300; i++) {
+      await tester.pump(const Duration(milliseconds: 20));
+    }
+    expect(tester.takeException(), isNull);
+  });
+
+  test('a title too long for the label scrolls through it and starts over', () {
+    // Fits: never moves.
+    expect(marqueeOffset(500, 652, 0), 0);
+    expect(marqueeOffset(500, 652, 30), 0);
+
+    // Too long: holds at the start, then crawls left at a steady pace…
+    const width = 900.0;
+    expect(marqueeOffset(width, 652, 1), 0);
+    final a = marqueeOffset(width, 652, 4);
+    final b = marqueeOffset(width, 652, 5);
+    expect(a, lessThan(0));
+    expect(b - a, closeTo(-45, 0.01));
+    // …until the next copy, 90 behind, has taken its place; then it begins again.
+    const cycle = 2.5 + (width + 90) / 45;
+    expect(marqueeOffset(width, 652, cycle - 0.001), closeTo(-(width + 90), 0.1));
+    expect(marqueeOffset(width, 652, cycle + 1), 0);
   });
 
   test('formatTime matches the web version', () {

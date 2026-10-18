@@ -25,6 +25,12 @@ class DeckFrame extends ChangeNotifier {
   /// How far the load button is pushed in, 0–1.
   double loadTravel = 0;
 
+  /// Seconds since the deck started animating.
+  double clock = 0;
+
+  /// [clock] when the label's title last changed; its marquee runs from here.
+  double titleSince = 0;
+
   /// The display's big line (PLAY, PAUSE, WIND…) and its small readout.
   String headline = 'PAUSE';
   String readout = '0.00.00';

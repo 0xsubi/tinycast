@@ -5,9 +5,9 @@ import '../playback/playback.dart';
 import '../podcast/format.dart';
 import '../podcast/models.dart';
 import '../ui/chrome.dart';
+import '../ui/sections.dart' show SliverCrossAxisConstrained;
 import '../ui/style.dart';
 import 'episode_page.dart';
-import 'search_page.dart' show SliverCrossAxisConstrained;
 
 /// A show: its artwork, description and episodes.
 class PodcastPage extends StatefulWidget {
@@ -72,7 +72,7 @@ class _PodcastPageState extends State<PodcastPage> {
                         )
                       : const StateMessage(text: 'Loading episodes…', loading: true),
                 ),
-              const SliverToBoxAdapter(child: SizedBox(height: nowPlayingClearance)),
+              SliverToBoxAdapter(child: SizedBox(height: bottomClearance(context))),
             ],
           ),
         );

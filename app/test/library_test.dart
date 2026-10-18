@@ -110,6 +110,41 @@ void main() {
     await library.close();
   });
 
+  test('listening progress survives a restart', () async {
+    var library = await open();
+    final episode = _episode('a');
+    expect(library.progress(_show, episode), isNull);
+    await library.setProgress(_show, episode, 754.5);
+    await library.close();
+
+    library = await open();
+    expect(library.progress(_show, episode), 754.5);
+    await library.setProgress(_show, episode, null);
+    await library.close();
+
+    library = await open();
+    expect(library.progress(_show, episode), isNull);
+    await library.close();
+  });
+
+  test('a version 1 library gains listening progress', () async {
+    final path = p.join(temp.path, 'library.db');
+    var library = await open();
+    await library.subscribe(_show);
+    await library.close();
+    // Roll the file back to the first schema.
+    final db = await databaseFactoryFfiNoIsolate.openDatabase(path);
+    await db.execute('DROP TABLE progress');
+    await db.setVersion(1);
+    await db.close();
+
+    library = await open();
+    expect(library.isSubscribed(_show), isTrue);
+    await library.setProgress(_show, _episode('a'), 60);
+    expect(library.progress(_show, _episode('a')), 60);
+    await library.close();
+  });
+
   group('downloads', () {
     late HttpServer server;
     final audio = List<int>.generate(200000, (i) => i % 256);
