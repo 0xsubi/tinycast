@@ -1,6 +1,7 @@
 import 'package:flutter/painting.dart';
 
 import 'geometry.dart';
+import 'metal.dart';
 import 'paint_kit.dart';
 import 'textures.dart';
 
@@ -18,8 +19,11 @@ final Stops _chrome = [
 final Stops _chromePin = [(0, rgb(0xf4f4f4)), (0.5, rgb(0xa6a6a6)), (1, rgb(0x4a4a4a))];
 final Stops _spec = [(0, white.withValues(alpha: 0.95)), (1, white.withValues(alpha: 0))];
 
-/// Static front layer: reel lips, head assembly, guide rollers, smoked lid,
-/// panel screws.
+/// Top band of the device; the reels turn underneath it.
+const double bandH = 116;
+
+/// Static front layer: reel lips, head assembly, guide rollers and the
+/// aluminium top band.
 class FrontPainter extends DeckPainter {
   @override
   void paintDeck(Canvas canvas) {
@@ -27,11 +31,7 @@ class FrontPainter extends DeckPainter {
       _lip(canvas, reels[s]!.centre);
     }
     _headAssembly(canvas);
-    _lid(canvas);
-    _screw(canvas, 40, 688, 18);
-    _screw(canvas, 1964, 688, 62);
-    _screw(canvas, 40, 902, -34);
-    _screw(canvas, 1964, 902, 8);
+    _band(canvas);
   }
 
   /// Raised outer rim. Circular, so it is lit statically on top of the spinning flange.
@@ -67,69 +67,26 @@ class FrontPainter extends DeckPainter {
       ..restore();
   }
 
-  void _lid(Canvas canvas) {
-    // Lid casts a soft shadow over the reels
-    const shadow = Rect.fromLTWH(0, 116, viewW, 34);
+  /// The aluminium plate across the top, in place of a smoked lid: wordmark,
+  /// microphone holes, and room for the display.
+  void _band(Canvas canvas) {
+    // The band stands proud of the reels and shades them.
+    const shadow = Rect.fromLTWH(0, bandH, viewW, 40);
     canvas.drawRect(
       shadow,
-      shaded(boxLinear(shadow, 0, 0, 0, 1, [(0, black.withValues(alpha: 0.6)), (1, black.withValues(alpha: 0))])),
+      shaded(boxLinear(shadow, 0, 0, 0, 1, [(0, black.withValues(alpha: 0.38)), (1, black.withValues(alpha: 0))])),
     );
-
-    // Smoked glass: reels and hubs remain faintly visible through it
-    const lid = Rect.fromLTWH(0, 0, viewW, 116);
+    fillAluminium(canvas, const Rect.fromLTWH(0, 0, viewW, bandH), texel: pixel);
     canvas
-      ..drawRect(
-        lid,
-        shaded(
-          boxLinear(lid, 0, 0, 0, 1, [
-            (0, rgb(0x050505, 0.97)),
-            (0.35, rgb(0x0b0b0b, 0.9)),
-            (0.85, rgb(0x111111, 0.84)),
-            (1, rgb(0x161616, 0.82)),
-          ]),
-        ),
-      )
-      ..drawRect(
-        lid,
-        shaded(
-          boxLinear(lid, 0, 0, 1, 0, [
-            (0, white.withValues(alpha: 0)),
-            (0.3, white.withValues(alpha: 0.035)),
-            (0.55, white.withValues(alpha: 0)),
-            (0.8, white.withValues(alpha: 0.025)),
-            (1, white.withValues(alpha: 0)),
-          ]),
-        ),
-      )
-      ..drawRect(const Rect.fromLTWH(0, 0, viewW, 7), fill(rgb(0x080808)))
-      ..drawRect(const Rect.fromLTWH(0, 7, viewW, 1.5), fill(white.withValues(alpha: 0.07)));
+      // Chamfered lower edge catching the light, then the dark seam.
+      ..drawRect(const Rect.fromLTWH(0, bandH - 5, viewW, 3), fill(white.withValues(alpha: 0.55)))
+      ..drawRect(const Rect.fromLTWH(0, bandH - 2, viewW, 3), fill(black.withValues(alpha: 0.45)));
 
-    // Brushed silver lid handle
-    const handle = Rect.fromLTWH(515, 10, 977, 27);
+    engraveText(canvas, 'tinycast', panelType(size: 58, spacing: -0.5), 70, 80, unit: 1.5);
+    // Microphone hole, beside the status lamp (display layer).
     canvas
-      ..drawRect(const Rect.fromLTWH(515, 39, 977, 4), blurred(black.withValues(alpha: 0.5), 2.5))
-      ..drawRect(
-        handle,
-        shaded(boxLinear(handle, 0, 0, 0, 1, [(0, rgb(0xdedede)), (0.5, rgb(0xc4c4c4)), (1, rgb(0xa2a2a2))])),
-      )
-      ..drawRect(
-        handle,
-        shaded(
-          boxLinear(handle, 0, 0, 1, 0, [
-            (0, black.withValues(alpha: 0.18)),
-            (0.04, black.withValues(alpha: 0)),
-            (0.96, black.withValues(alpha: 0)),
-            (1, black.withValues(alpha: 0.18)),
-          ]),
-        ),
-      )
-      ..drawRect(const Rect.fromLTWH(515, 10, 977, 1.5), fill(white.withValues(alpha: 0.8)))
-      ..drawRect(const Rect.fromLTWH(515, 35.5, 977, 1.5), fill(black.withValues(alpha: 0.35)));
-
-    // Lower edge of the lid: a lit chamfer then a hard dark line
-    canvas
-      ..drawRect(const Rect.fromLTWH(0, 109, viewW, 2.5), fill(white.withValues(alpha: 0.075)))
-      ..drawRect(const Rect.fromLTWH(0, 113, viewW, 3), fill(rgb(0x040404)));
+      ..drawCircle(const Offset(860, 59.5), 8, fill(white.withValues(alpha: 0.8)))
+      ..drawCircle(const Offset(860, 58), 7.5, fill(rgb(0x1c1c1c)));
   }
 
   void _headAssembly(Canvas canvas) {
@@ -253,20 +210,6 @@ class FrontPainter extends DeckPainter {
       ..drawCircle(const Offset(1195, 690), 13, fill(black.withValues(alpha: 0.25)))
       ..drawCircle(const Offset(1194, 689), 5.5, fill(rgb(0xdcdcdc)))
       ..drawCircle(const Offset(1193, 687.6), 2, fill(white));
-  }
-
-  void _screw(Canvas canvas, double x, double y, double angle) {
-    final slot = stroke(rgb(0x060606), 2.6, cap: StrokeCap.round);
-    canvas
-      ..save()
-      ..translate(x, y)
-      ..drawCircle(const Offset(0, 1.6), 10, fill(white.withValues(alpha: 0.07)))
-      ..drawCircle(Offset.zero, 10, fill(rgb(0x161616)))
-      ..drawCircle(Offset.zero, 8, fill(rgb(0x1f1f1f)))
-      ..rotate(rad(angle))
-      ..drawLine(const Offset(-5, 0), const Offset(5, 0), slot)
-      ..drawLine(const Offset(0, -5), const Offset(0, 5), slot)
-      ..restore();
   }
 
   @override

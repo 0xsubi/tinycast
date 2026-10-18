@@ -69,8 +69,18 @@ Paint stroke(Color c, double width, {StrokeCap cap = StrokeCap.butt}) => Paint()
 /// Tiled bitmap, anchored at the current origin (an SVG userSpaceOnUse pattern).
 /// Mipmapped so that, like the browser, minified grain averages out instead
 /// of aliasing into harsh speckle.
-Paint pattern(ui.Image image, double opacity, {BlendMode blend = BlendMode.srcOver}) => Paint()
-  ..shader = ImageShader(image, TileMode.repeated, TileMode.repeated, identity, filterQuality: FilterQuality.medium)
+///
+/// [texel] is the size of one texture pixel in the current units, so a
+/// texture can be drawn at the same physical grain in differently scaled
+/// canvases.
+Paint pattern(ui.Image image, double opacity, {BlendMode blend = BlendMode.srcOver, double texel = 1}) => Paint()
+  ..shader = ImageShader(
+    image,
+    TileMode.repeated,
+    TileMode.repeated,
+    texel == 1 ? identity : scaleMatrix(texel, texel),
+    filterQuality: FilterQuality.medium,
+  )
   ..colorFilter = ColorFilter.mode(white.withValues(alpha: opacity), BlendMode.modulate)
   ..blendMode = blend;
 
@@ -98,10 +108,10 @@ void dropShadow(
 }
 
 /// `filter="url(#fl-drop)"`
-void dropLarge(Canvas canvas, Path shape) => dropShadow(canvas, shape, dx: 3, dy: 8, sigma: 6, alpha: 0.65);
+void dropLarge(Canvas canvas, Path shape) => dropShadow(canvas, shape, dx: 3, dy: 8, sigma: 6, alpha: 0.42);
 
 /// `filter="url(#fl-drop-sm)"`
-void dropSmall(Canvas canvas, Path shape) => dropShadow(canvas, shape, dx: 2, dy: 5, sigma: 3, alpha: 0.75);
+void dropSmall(Canvas canvas, Path shape) => dropShadow(canvas, shape, dx: 2, dy: 5, sigma: 3, alpha: 0.5);
 
 Path rrectPath(double x, double y, double w, double h, double r) =>
     Path()..addRRect(RRect.fromRectAndRadius(Rect.fromLTWH(x, y, w, h), Radius.circular(r)));
@@ -191,10 +201,15 @@ void drawString(Canvas canvas, String text, TextStyle style, double x, double y,
 abstract class DeckPainter extends CustomPainter {
   DeckPainter({super.repaint});
 
+  /// One screen (logical) pixel in view-box units, for drawing textures at
+  /// the same grain as the widgets around the deck.
+  double pixel = 1;
+
   void paintDeck(Canvas canvas);
 
   @override
   void paint(Canvas canvas, Size size) {
+    pixel = viewW / size.width;
     canvas
       ..save()
       ..scale(size.width / viewW, size.height / viewH);

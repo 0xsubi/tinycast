@@ -6,8 +6,8 @@ import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 import '../deck/paint_kit.dart';
 import '../deck/textures.dart';
 
-/// The app accent: the orange-red of a tape deck's RECORD key.
-const Color accent = Color(0xFFD13F26);
+/// The app accent: signal orange.
+const Color accent = Color(0xFFF05A24);
 
 /// Warm off-white used for text and icons on the dark glass.
 const Color ink = Color(0xFFF2EDE6);
@@ -16,7 +16,7 @@ const Color stage = Color(0xFF0B0A09);
 
 /// Accent-tinted glass for the one primary action on a page (Play).
 const LiquidGlassSettings accentGlass = LiquidGlassSettings(
-  glassColor: Color(0xD9D13F26),
+  glassColor: Color(0xD9F05A24),
   thickness: 24,
   blur: 8,
   lightIntensity: 0.7,

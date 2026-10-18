@@ -1,3 +1,4 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -10,7 +11,7 @@ import 'package:tinycast/library/library.dart';
 import 'package:tinycast/main.dart';
 import 'package:tinycast/pages/player_page.dart';
 import 'package:tinycast/playback/playback.dart';
-import 'package:tinycast/player/controls.dart';
+import 'package:tinycast/player/metal_controls.dart';
 
 import 'test_library.dart';
 
@@ -35,13 +36,13 @@ Future<Offset Function(double, double)> _pumpDeck(
   return (x, y) => rect.topLeft + Offset(x * k, y * k);
 }
 
-Future<void> _pumpControls(WidgetTester tester, Transport transport, {VoidCallback? onLoad}) async {
+Future<void> _pumpControls(WidgetTester tester, Transport transport) async {
   await tester.pumpWidget(
     MaterialApp(
       home: Center(
         child: SizedBox(
-          width: 800,
-          child: PlayerControls(transport: transport, onLoad: onLoad ?? () {}),
+          width: 1000,
+          child: MetalDevice(transport: transport, deck: const SizedBox()),
         ),
       ),
     ),
@@ -71,14 +72,14 @@ void main() {
     view.devicePixelRatio = 1;
   });
 
-  testWidgets('the glass keys drive the transport', (tester) async {
+  testWidgets('the metal keys drive the transport', (tester) async {
     final transport = Transport(600, startAt: 100);
     await _pumpControls(tester, transport);
 
     await tester.tap(find.byKey(const Key('play')));
     expect(transport.playing, isTrue);
-    await tester.pump();
-    await tester.tap(find.byKey(const Key('play')));
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.tap(find.byKey(const Key('pause')));
     expect(transport.playing, isFalse);
 
     // The simulated clock ran on wall time while playing, so skips are relative.
@@ -87,18 +88,40 @@ void main() {
     expect(transport.time, closeTo(start - 15, 0.01));
     await tester.tap(find.byKey(const Key('ff')));
     expect(transport.time, closeTo(start + 15, 0.01));
+    await tester.pump(const Duration(milliseconds: 300));
   });
 
-  testWidgets('dragging the seek bar seeks', (tester) async {
+  testWidgets('keys act on press and travel down', (tester) async {
+    final transport = Transport(600, startAt: 100);
+    await _pumpControls(tester, transport);
+
+    final icon = find.descendant(of: find.byKey(const Key('ff')), matching: find.byType(Icon)).last;
+    final rest = tester.getCenter(icon).dy;
+    final gesture = await tester.startGesture(tester.getCenter(find.byKey(const Key('ff'))));
+    // A mechanical key fires as it goes down, not on release.
+    expect(transport.time, closeTo(130, 0.01));
+    // An animation's clock starts on its first frame, so pump twice.
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(tester.getCenter(icon).dy, greaterThan(rest));
+    await gesture.up();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(tester.getCenter(icon).dy, closeTo(rest, 0.01));
+  });
+
+  testWidgets('dragging the seek slot seeks', (tester) async {
     final transport = Transport(600);
     await _pumpControls(tester, transport);
 
-    final bar = tester.getRect(find.byKey(const Key('seek')));
-    final gesture = await tester.startGesture(bar.centerLeft + const Offset(20, 0));
-    await gesture.moveTo(bar.center);
+    final slot = tester.getRect(find.byKey(const Key('seek')));
+    final gesture = await tester.startGesture(slot.centerLeft + const Offset(10, 0));
     await tester.pump();
-    expect(transport.time, closeTo(300, 20));
-    await gesture.moveTo(bar.centerRight + const Offset(40, 0));
+    expect(transport.time, 0);
+    await gesture.moveTo(slot.center);
+    await tester.pump();
+    expect(transport.time, closeTo(300, 1));
+    await gesture.moveTo(slot.centerRight + const Offset(40, 0));
     await tester.pump();
     expect(transport.time, closeTo(600, 0.01));
     await gesture.up();
@@ -106,24 +129,38 @@ void main() {
     expect(find.text('-0:00'), findsOneWidget);
   });
 
-  testWidgets('the volume slider sets the volume', (tester) async {
+  testWidgets('the fader and the knob set the volume', (tester) async {
     final transport = Transport(600);
     await _pumpControls(tester, transport);
 
-    final bar = tester.getRect(find.byKey(const Key('volume')));
-    final gesture = await tester.startGesture(bar.center);
-    await gesture.moveTo(bar.centerLeft - const Offset(40, 0));
+    final fader = tester.getRect(find.byKey(const Key('volume')));
+    var gesture = await tester.startGesture(fader.center);
+    await gesture.moveTo(fader.bottomCenter - const Offset(0, 2));
     await tester.pump();
     expect(transport.volume, 0);
+    await gesture.moveTo(fader.topCenter + const Offset(0, 2));
+    await tester.pump();
+    expect(transport.volume, 1);
     await gesture.up();
-    await tester.pump(const Duration(seconds: 1));
+
+    // Rolling the knob to the right turns the volume down.
+    final knob = tester.getCenter(find.byKey(const Key('volume-knob')));
+    gesture = await tester.startGesture(knob + const Offset(0, 10));
+    await gesture.moveBy(const Offset(30, 0));
+    await gesture.moveBy(const Offset(60, 0));
+    await tester.pump();
+    expect(transport.volume, closeTo(0.7, 0.01));
+    await gesture.up();
+
+    await tester.sendEventToBinding(PointerScrollEvent(position: fader.center, scrollDelta: const Offset(0, 150)));
+    expect(transport.volume, lessThan(0.7));
   });
 
-  testWidgets('the load chip asks for a file', (tester) async {
+  testWidgets('the load button asks for a file', (tester) async {
     var picks = 0;
-    await _pumpControls(tester, Transport(600), onLoad: () => picks++);
+    final at = await _pumpDeck(tester, Transport(600), onPickFile: () => picks++);
 
-    await tester.tap(find.byKey(const Key('load')));
+    await tester.tapAt(at(150, 846));
     expect(picks, 1);
   });
 
@@ -178,7 +215,7 @@ void main() {
     await tester.pumpWidget(_player(Transport(600, startAt: 100)));
     await tester.pump();
     expect(tester.takeException(), isNull);
-    expect(find.byKey(const Key('load')), findsOneWidget);
+    expect(find.byType(MetalDevice), findsOneWidget);
   });
 
   test('formatTime matches the web version', () {

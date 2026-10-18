@@ -19,5 +19,15 @@ class DeckFrame extends ChangeNotifier {
   /// Opacity of the label's "load episode" hint (brightens on hover).
   double labelHint = 0.55;
 
+  /// Status lamp brightness, 0–1.
+  double lamp = 0;
+
+  /// How far the load button is pushed in, 0–1.
+  double loadTravel = 0;
+
+  /// The display's big line (PLAY, PAUSE, WIND…) and its small readout.
+  String headline = 'PAUSE';
+  String readout = '0.00.00';
+
   void changed() => notifyListeners();
 }

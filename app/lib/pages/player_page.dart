@@ -9,12 +9,10 @@ import 'package:flutter/services.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
-import '../deck/geometry.dart';
 import '../deck/label_layer.dart';
 import '../deck/tape_deck.dart';
 import '../playback/playback.dart';
-import '../player/ambient_background.dart';
-import '../player/controls.dart';
+import '../player/metal_controls.dart';
 import '../ui/style.dart';
 
 const Set<String> _audioExtensions = {
@@ -34,10 +32,14 @@ const Set<String> _audioExtensions = {
   'webm',
 };
 
-const double _maxDeckWidth = 1200;
+const double _maxDeviceWidth = 1120;
 
-/// Vertical space reserved for the controls and hint under the deck.
-const double _chromeHeight = 250;
+/// Vertical space kept for the margins and the hint line.
+const double _chromeHeight = 110;
+
+/// Studio backdrop, after the product shot the device is modelled on.
+const Color _studio = Color(0xFFE6E6E4);
+const Color _studioInk = Color(0xFF6B6B69);
 
 /// Shown on the label before anything is threaded.
 const Episode _blank = Episode(show: 'tinycast', tag: '', title: 'No tape threaded');
@@ -112,9 +114,9 @@ class _PlayerPageState extends State<PlayerPage> {
         : 'Tap the label to load an episode';
     final canPop = Navigator.of(context).canPop();
     return CupertinoPageScaffold(
-      backgroundColor: stage,
+      backgroundColor: _studio,
       child: GlassPage(
-        background: AmbientBackground(transport: transport),
+        background: const CustomPaint(painter: _StudioLight(), child: SizedBox.expand()),
         child: Focus(
           autofocus: true,
           onKeyEvent: _onKey,
@@ -124,10 +126,10 @@ class _PlayerPageState extends State<PlayerPage> {
                 LayoutBuilder(
                   builder: (context, constraints) {
                     const gutter = 32.0;
-                    // Fit the deck to the window, leaving room for the controls.
+                    // Fit the device to the window.
                     final room = constraints.maxWidth - 2 * gutter;
-                    final fit = math.min(room, (constraints.maxHeight - _chromeHeight) * viewW / viewH);
-                    final width = math.max(math.min(_maxDeckWidth, fit), math.min(room, 320.0));
+                    final fit = math.min(room, (constraints.maxHeight - _chromeHeight) / deviceHeight(1));
+                    final width = math.max(math.min(_maxDeviceWidth, fit), math.min(room, 320.0));
                     return SingleChildScrollView(
                       child: ConstrainedBox(
                         constraints: BoxConstraints(minHeight: constraints.maxHeight),
@@ -139,22 +141,20 @@ class _PlayerPageState extends State<PlayerPage> {
                               child: Column(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  ListenableBuilder(
-                                    listenable: playback,
-                                    builder: (context, _) => TapeDeck(
-                                      transport: transport,
-                                      episode: playback.current?.label ?? _blank,
-                                      onPickFile: _pickFile,
-                                      onDropFiles: _dropFiles,
-                                      acceptsDrops: _desktop,
+                                  MetalDevice(
+                                    transport: transport,
+                                    deck: ListenableBuilder(
+                                      listenable: playback,
+                                      builder: (context, _) => TapeDeck(
+                                        transport: transport,
+                                        episode: playback.current?.label ?? _blank,
+                                        onPickFile: _pickFile,
+                                        onDropFiles: _dropFiles,
+                                        acceptsDrops: _desktop,
+                                      ),
                                     ),
                                   ),
-                                  const SizedBox(height: 30),
-                                  ConstrainedBox(
-                                    constraints: const BoxConstraints(maxWidth: 820),
-                                    child: PlayerControls(transport: transport, onLoad: _pickFile),
-                                  ),
-                                  const SizedBox(height: 26),
+                                  const SizedBox(height: 22),
                                   ListenableBuilder(
                                     listenable: Listenable.merge([playback, transport]),
                                     builder: (context, _) => Text(
@@ -163,7 +163,7 @@ class _PlayerPageState extends State<PlayerPage> {
                                       style: textStyle(
                                         size: 12,
                                         spacing: 0.3,
-                                        color: playback.error != null ? const Color(0xFFFF8A7A) : inkAt(0.38),
+                                        color: playback.error != null ? accent : _studioInk,
                                       ),
                                     ),
                                   ),
@@ -183,7 +183,7 @@ class _PlayerPageState extends State<PlayerPage> {
                     child: ExcludeFocus(
                       child: GlassIconButton(
                         key: const Key('close-player'),
-                        icon: Icon(CupertinoIcons.chevron_down, color: ink, size: 20),
+                        icon: const Icon(CupertinoIcons.chevron_down, color: Color(0xFF333331), size: 20),
                         semanticLabel: 'Close player',
                         onPressed: () => Navigator.of(context).maybePop(),
                       ),
@@ -196,4 +196,37 @@ class _PlayerPageState extends State<PlayerPage> {
       ),
     );
   }
+}
+
+/// Soft overhead light on a pale backdrop.
+class _StudioLight extends CustomPainter {
+  const _StudioLight();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final all = Offset.zero & size;
+    canvas
+      ..drawRect(all, Paint()..color = _studio)
+      ..drawRect(
+        all,
+        Paint()
+          ..shader = RadialGradient(
+            center: const Alignment(0, -0.35),
+            radius: 0.9,
+            colors: [const Color(0xFFF4F4F2), const Color(0xFFF4F4F2).withValues(alpha: 0)],
+          ).createShader(all),
+      )
+      ..drawRect(
+        all,
+        Paint()
+          ..shader = RadialGradient(
+            radius: 1.1,
+            colors: [const Color(0x00000000), const Color(0x14000000)],
+            stops: const [0.6, 1],
+          ).createShader(all),
+      );
+  }
+
+  @override
+  bool shouldRepaint(_StudioLight oldDelegate) => false;
 }

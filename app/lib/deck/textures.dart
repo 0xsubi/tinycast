@@ -21,6 +21,9 @@ class Textures {
   /// Large-scale mottling; stretched over the whole panel.
   static late final ui.Image mottle;
 
+  /// Soft, fine, roughly Gaussian speckle: bead-blasted aluminium.
+  static late final ui.Image bead;
+
   static Future<void> load() async {
     final rnd = math.Random();
     final results = await Future.wait([
@@ -30,11 +33,14 @@ class Textures {
       // than mid-grey once converted to sRGB.
       _render(256, 256, (x, y) => 188 + (rnd.nextDouble() - 0.5) * 120),
       _mottle(rnd),
+      // Sum of uniforms ≈ Gaussian, so the speckle has no hard extremes.
+      _render(256, 256, (x, y) => 128 + (rnd.nextDouble() + rnd.nextDouble() + rnd.nextDouble() - 1.5) * 70),
     ]);
     grain = results[0];
     brushed = results[1];
     panelGrain = results[2];
     mottle = results[3];
+    bead = results[4];
   }
 
   static Future<ui.Image> _render(int w, int h, double Function(int x, int y) value) {

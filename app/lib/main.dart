@@ -60,7 +60,7 @@ class _ReelPlayerAppState extends State<ReelPlayerApp> {
       library: widget.library,
       downloads: _downloads,
       child: MaterialApp(
-        title: 'Reel Player',
+        title: 'tinycast',
         debugShowCheckedModeBanner: false,
         theme: ThemeData(
           brightness: Brightness.dark,
