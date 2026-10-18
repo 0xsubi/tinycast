@@ -235,7 +235,7 @@ class _DownloadButton extends StatelessWidget {
                 children: [
                   GlassProgressIndicator.circular(value: progress, size: 18, color: accent),
                   const SizedBox(width: 10),
-                  Text(
+                  TabularText(
                     progress == null ? 'Downloading' : '${(progress * 100).floor()}%',
                     style: textStyle(size: 14, weight: FontWeight.w600),
                   ),

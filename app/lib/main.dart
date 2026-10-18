@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
+import 'deck/paint_kit.dart';
 import 'deck/textures.dart';
 import 'library/downloads.dart';
 import 'library/library.dart';
@@ -64,6 +65,7 @@ class _ReelPlayerAppState extends State<ReelPlayerApp> {
         debugShowCheckedModeBanner: false,
         theme: ThemeData(
           brightness: Brightness.dark,
+          fontFamily: urbanist,
           scaffoldBackgroundColor: stage,
           colorScheme: ColorScheme.fromSeed(seedColor: accent, brightness: Brightness.dark, primary: accent),
           textSelectionTheme: TextSelectionThemeData(

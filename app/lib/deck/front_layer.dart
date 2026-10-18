@@ -19,19 +19,16 @@ final Stops _chrome = [
 final Stops _chromePin = [(0, rgb(0xf4f4f4)), (0.5, rgb(0xa6a6a6)), (1, rgb(0x4a4a4a))];
 final Stops _spec = [(0, white.withValues(alpha: 0.95)), (1, white.withValues(alpha: 0))];
 
-/// Top band of the device; the reels turn underneath it.
-const double bandH = 116;
-
-/// Static front layer: reel lips, head assembly, guide rollers and the
-/// aluminium top band.
+/// Static front layer of the mechanism: reel lips, head assembly and guide rollers.
 class FrontPainter extends DeckPainter {
+  FrontPainter(super.placement);
+
   @override
-  void paintDeck(Canvas canvas) {
+  void paintDeck(Canvas canvas, Size view) {
     for (final s in Side.values) {
       _lip(canvas, reels[s]!.centre);
     }
     _headAssembly(canvas);
-    _band(canvas);
   }
 
   /// Raised outer rim. Circular, so it is lit statically on top of the spinning flange.
@@ -65,28 +62,6 @@ class FrontPainter extends DeckPainter {
       ..drawCircle(Offset.zero, lipR, stroke(black.withValues(alpha: 0.55), 2.5))
       ..drawCircle(Offset.zero, lipR + 2.5, stroke(white.withValues(alpha: 0.05), 1.5))
       ..restore();
-  }
-
-  /// The aluminium plate across the top, in place of a smoked lid: wordmark,
-  /// microphone holes, and room for the display.
-  void _band(Canvas canvas) {
-    // The band stands proud of the reels and shades them.
-    const shadow = Rect.fromLTWH(0, bandH, viewW, 40);
-    canvas.drawRect(
-      shadow,
-      shaded(boxLinear(shadow, 0, 0, 0, 1, [(0, black.withValues(alpha: 0.38)), (1, black.withValues(alpha: 0))])),
-    );
-    fillAluminium(canvas, const Rect.fromLTWH(0, 0, viewW, bandH), texel: pixel);
-    canvas
-      // Chamfered lower edge catching the light, then the dark seam.
-      ..drawRect(const Rect.fromLTWH(0, bandH - 5, viewW, 3), fill(white.withValues(alpha: 0.55)))
-      ..drawRect(const Rect.fromLTWH(0, bandH - 2, viewW, 3), fill(black.withValues(alpha: 0.45)));
-
-    engraveText(canvas, 'tinycast', panelType(size: 58, spacing: -0.5), 70, 80, unit: 1.5);
-    // Microphone hole, beside the status lamp (display layer).
-    canvas
-      ..drawCircle(const Offset(860, 59.5), 8, fill(white.withValues(alpha: 0.8)))
-      ..drawCircle(const Offset(860, 58), 7.5, fill(rgb(0x1c1c1c)));
   }
 
   void _headAssembly(Canvas canvas) {
@@ -213,5 +188,43 @@ class FrontPainter extends DeckPainter {
   }
 
   @override
-  bool shouldRepaint(FrontPainter oldDelegate) => false;
+  bool shouldRepaint(FrontPainter oldDelegate) => oldDelegate.placement != placement;
+}
+
+/// Height of the band's shadow on the mechanism below it.
+const double bandShadow = 40;
+
+/// The aluminium plate across the top, in place of a smoked lid: wordmark,
+/// microphone hole, and room for the display. It runs the width of the
+/// device and stands proud of the mechanism, shading it.
+class BandPainter extends DeckPainter {
+  BandPainter(super.placement, {this.inset = 70});
+
+  /// Where the wordmark starts, leaving room for a button before it.
+  final double inset;
+
+  @override
+  void paintDeck(Canvas canvas, Size view) {
+    final w = view.width;
+    final shadow = Rect.fromLTWH(0, bandH, w, bandShadow);
+    canvas.drawRect(
+      shadow,
+      shaded(boxLinear(shadow, 0, 0, 0, 1, [(0, black.withValues(alpha: 0.38)), (1, black.withValues(alpha: 0))])),
+    );
+    fillAluminium(canvas, Rect.fromLTWH(0, 0, w, bandH), texel: pixel);
+    canvas
+      // Chamfered lower edge catching the light, then the dark seam.
+      ..drawRect(Rect.fromLTWH(0, bandH - 5, w, 3), fill(white.withValues(alpha: 0.55)))
+      ..drawRect(Rect.fromLTWH(0, bandH - 2, w, 3), fill(black.withValues(alpha: 0.45)));
+
+    engraveText(canvas, 'tinycast', panelType(size: 58, spacing: -0.5), inset, 80, unit: 1.5);
+    // Microphone hole, beside the status lamp (display layer).
+    final mic = Offset(w * lampAt + 60, 58);
+    canvas
+      ..drawCircle(mic + const Offset(0, 1.5), 8, fill(white.withValues(alpha: 0.8)))
+      ..drawCircle(mic, 7.5, fill(rgb(0x1c1c1c)));
+  }
+
+  @override
+  bool shouldRepaint(BandPainter oldDelegate) => oldDelegate.placement != placement || oldDelegate.inset != inset;
 }

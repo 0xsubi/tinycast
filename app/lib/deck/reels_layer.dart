@@ -43,12 +43,12 @@ final Stops _spindle = [(0, rgb(0xbdbdbd)), (0.5, rgb(0x6e6e6e)), (1, rgb(0x2e2e
 
 /// Moving reels: tape packs, the threaded tape and the spinning flanges.
 class ReelsPainter extends DeckPainter {
-  ReelsPainter(this.frame) : super(repaint: frame);
+  ReelsPainter(super.placement, this.frame) : super(repaint: frame);
 
   final DeckFrame frame;
 
   @override
-  void paintDeck(Canvas canvas) {
+  void paintDeck(Canvas canvas, Size view) {
     for (final s in Side.values) {
       _tapePack(canvas, s, frame.radius[s]!);
     }
@@ -127,5 +127,5 @@ class ReelsPainter extends DeckPainter {
   }
 
   @override
-  bool shouldRepaint(ReelsPainter oldDelegate) => oldDelegate.frame != frame;
+  bool shouldRepaint(ReelsPainter oldDelegate) => oldDelegate.placement != placement || oldDelegate.frame != frame;
 }

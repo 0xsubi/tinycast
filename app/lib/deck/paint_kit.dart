@@ -1,6 +1,8 @@
+import 'dart:math' as math;
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 
+import 'package:flutter/foundation.dart' show immutable;
 import 'package:flutter/rendering.dart';
 
 import 'geometry.dart';
@@ -131,8 +133,9 @@ void rotateAbout(Canvas canvas, double degrees, double cx, double cy) {
 
 enum Anchor { start, middle, end }
 
-const String _helvetica = 'Helvetica Neue';
-const List<String> _helveticaFallback = ['Helvetica', 'Arial', 'Roboto'];
+/// The app typeface, bundled in `assets/fonts`.
+const String urbanist = 'Urbanist';
+const List<String> _sansFallback = ['Helvetica Neue', 'Helvetica', 'Arial', 'Roboto'];
 
 TextStyle helvetica({
   required double size,
@@ -140,8 +143,8 @@ TextStyle helvetica({
   FontWeight weight = FontWeight.w600,
   double spacing = 0,
 }) => TextStyle(
-  fontFamily: _helvetica,
-  fontFamilyFallback: _helveticaFallback,
+  fontFamily: urbanist,
+  fontFamilyFallback: _sansFallback,
   fontSize: size,
   fontWeight: weight,
   letterSpacing: spacing,
@@ -195,25 +198,94 @@ void drawString(Canvas canvas, String text, TextStyle style, double x, double y,
       anchor: anchor,
     );
 
+bool _isDigit(String c) => c.codeUnitAt(0) ^ 0x30 <= 9;
+
+/// The slot each digit gets in [drawTabular]: the widest digit in [style].
+/// Urbanist has no tabular figures, so changing numbers would shift about.
+double digitCell(TextStyle style) {
+  var cell = 0.0;
+  for (var d = 0; d <= 9; d++) {
+    cell = math.max(cell, measureString('$d', style));
+  }
+  return cell;
+}
+
+/// Width of [text] as [drawTabular] sets it.
+double measureTabular(String text, TextStyle style) {
+  final cell = digitCell(style);
+  var w = 0.0;
+  for (final c in text.split('')) {
+    w += _isDigit(c) ? cell : measureString(c, style);
+  }
+  return w;
+}
+
+/// [drawString] with each digit centred in a [digitCell]-wide slot.
+void drawTabular(Canvas canvas, String text, TextStyle style, double x, double y, {Anchor anchor = Anchor.start}) {
+  final cell = digitCell(style);
+  var at =
+      x -
+      switch (anchor) {
+        Anchor.start => 0.0,
+        Anchor.middle => measureTabular(text, style) / 2,
+        Anchor.end => measureTabular(text, style),
+      };
+  for (final c in text.split('')) {
+    if (_isDigit(c)) {
+      drawString(canvas, c, style, at + cell / 2, y, anchor: Anchor.middle);
+      at += cell;
+    } else {
+      drawString(canvas, c, style, at, y);
+      at += measureString(c, style);
+    }
+  }
+}
+
 /* --------------------------------------------------------------- painter -- */
 
-/// A painter that draws in the deck's 2000 × 1260 view-box coordinates.
+/// Where a painter's view-box units land on its canvas: scaled by [scale],
+/// turned a quarter clockwise when [turned], then moved to [offset].
+@immutable
+class Placement {
+  const Placement(this.scale, {this.offset = Offset.zero, this.turned = false});
+
+  final double scale;
+  final Offset offset;
+  final bool turned;
+
+  void apply(Canvas canvas) {
+    canvas.translate(offset.dx, offset.dy);
+    if (turned) canvas.rotate(math.pi / 2);
+    canvas.scale(scale);
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is Placement && other.scale == scale && other.offset == offset && other.turned == turned;
+
+  @override
+  int get hashCode => Object.hash(scale, offset, turned);
+}
+
+/// A painter that draws one part of the deck in view-box units.
 abstract class DeckPainter extends CustomPainter {
-  DeckPainter({super.repaint});
+  DeckPainter(this.placement, {super.repaint});
+
+  final Placement placement;
 
   /// One screen (logical) pixel in view-box units, for drawing textures at
   /// the same grain as the widgets around the deck.
   double pixel = 1;
 
-  void paintDeck(Canvas canvas);
+  /// [view] is the canvas size in view-box units.
+  void paintDeck(Canvas canvas, Size view);
 
   @override
   void paint(Canvas canvas, Size size) {
-    pixel = viewW / size.width;
-    canvas
-      ..save()
-      ..scale(size.width / viewW, size.height / viewH);
-    paintDeck(canvas);
+    pixel = 1 / placement.scale;
+    canvas.save();
+    placement.apply(canvas);
+    paintDeck(canvas, size / placement.scale);
     canvas.restore();
   }
 }

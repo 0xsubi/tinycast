@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:math' as math;
 
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:file_picker/file_picker.dart';
@@ -13,7 +12,6 @@ import '../deck/label_layer.dart';
 import '../deck/tape_deck.dart';
 import '../playback/playback.dart';
 import '../player/metal_controls.dart';
-import '../ui/style.dart';
 
 const Set<String> _audioExtensions = {
   'mp3',
@@ -31,15 +29,6 @@ const Set<String> _audioExtensions = {
   'wma',
   'webm',
 };
-
-const double _maxDeviceWidth = 1120;
-
-/// Vertical space kept for the margins and the hint line.
-const double _chromeHeight = 110;
-
-/// Studio backdrop, after the product shot the device is modelled on.
-const Color _studio = Color(0xFFE6E6E4);
-const Color _studioInk = Color(0xFF6B6B69);
 
 /// Shown on the label before anything is threaded.
 const Episode _blank = Episode(show: 'tinycast', tag: '', title: 'No tape threaded');
@@ -109,124 +98,41 @@ class _PlayerPageState extends State<PlayerPage> {
   Widget build(BuildContext context) {
     final playback = _playback;
     final transport = playback.transport;
-    final hint = _desktop
-        ? 'Space  play / pause    ·    ← →  skip    ·    drop an audio file on the deck'
-        : 'Tap the label to load an episode';
     final canPop = Navigator.of(context).canPop();
     return CupertinoPageScaffold(
-      backgroundColor: _studio,
       child: GlassPage(
-        background: const CustomPaint(painter: _StudioLight(), child: SizedBox.expand()),
         child: Focus(
           autofocus: true,
           onKeyEvent: _onKey,
-          child: SafeArea(
-            child: Stack(
-              children: [
-                LayoutBuilder(
-                  builder: (context, constraints) {
-                    const gutter = 32.0;
-                    // Fit the device to the window.
-                    final room = constraints.maxWidth - 2 * gutter;
-                    final fit = math.min(room, (constraints.maxHeight - _chromeHeight) / deviceHeight(1));
-                    final width = math.max(math.min(_maxDeviceWidth, fit), math.min(room, 320.0));
-                    return SingleChildScrollView(
-                      child: ConstrainedBox(
-                        constraints: BoxConstraints(minHeight: constraints.maxHeight),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 28, horizontal: gutter),
-                          child: Center(
-                            child: SizedBox(
-                              width: width,
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  MetalDevice(
-                                    transport: transport,
-                                    deck: ListenableBuilder(
-                                      listenable: playback,
-                                      builder: (context, _) => TapeDeck(
-                                        transport: transport,
-                                        episode: playback.current?.label ?? _blank,
-                                        onPickFile: _pickFile,
-                                        onDropFiles: _dropFiles,
-                                        acceptsDrops: _desktop,
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(height: 22),
-                                  ListenableBuilder(
-                                    listenable: Listenable.merge([playback, transport]),
-                                    builder: (context, _) => Text(
-                                      playback.error ?? (transport.buffering ? 'Buffering…' : hint),
-                                      textAlign: TextAlign.center,
-                                      style: textStyle(
-                                        size: 12,
-                                        spacing: 0.3,
-                                        color: playback.error != null ? accent : _studioInk,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
+          child: MetalDevice(
+            transport: transport,
+            deck: (unit, upright) => ListenableBuilder(
+              listenable: playback,
+              builder: (context, _) => TapeDeck(
+                transport: transport,
+                episode: playback.current?.label ?? _blank,
+                onPickFile: _pickFile,
+                onDropFiles: _dropFiles,
+                unit: unit,
+                upright: upright,
+                failed: playback.error != null,
+                acceptsDrops: _desktop,
+                leading: canPop
+                    ? ExcludeFocus(
+                        child: GlassIconButton(
+                          key: const Key('close-player'),
+                          size: bandButtonSize(unit),
+                          icon: const Icon(CupertinoIcons.chevron_down, color: Color(0xFF333331), size: 20),
+                          semanticLabel: 'Close player',
+                          onPressed: () => Navigator.of(context).maybePop(),
                         ),
-                      ),
-                    );
-                  },
-                ),
-                if (canPop)
-                  Positioned(
-                    top: 14,
-                    left: 14,
-                    child: ExcludeFocus(
-                      child: GlassIconButton(
-                        key: const Key('close-player'),
-                        icon: const Icon(CupertinoIcons.chevron_down, color: Color(0xFF333331), size: 20),
-                        semanticLabel: 'Close player',
-                        onPressed: () => Navigator.of(context).maybePop(),
-                      ),
-                    ),
-                  ),
-              ],
+                      )
+                    : null,
+              ),
             ),
           ),
         ),
       ),
     );
   }
-}
-
-/// Soft overhead light on a pale backdrop.
-class _StudioLight extends CustomPainter {
-  const _StudioLight();
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final all = Offset.zero & size;
-    canvas
-      ..drawRect(all, Paint()..color = _studio)
-      ..drawRect(
-        all,
-        Paint()
-          ..shader = RadialGradient(
-            center: const Alignment(0, -0.35),
-            radius: 0.9,
-            colors: [const Color(0xFFF4F4F2), const Color(0xFFF4F4F2).withValues(alpha: 0)],
-          ).createShader(all),
-      )
-      ..drawRect(
-        all,
-        Paint()
-          ..shader = RadialGradient(
-            radius: 1.1,
-            colors: [const Color(0x00000000), const Color(0x14000000)],
-            stops: const [0.6, 1],
-          ).createShader(all),
-      );
-  }
-
-  @override
-  bool shouldRepaint(_StudioLight oldDelegate) => false;
 }

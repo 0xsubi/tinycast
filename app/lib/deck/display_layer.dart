@@ -2,12 +2,13 @@ import 'package:flutter/painting.dart';
 
 import '../ui/style.dart' show accent;
 import 'frame.dart';
+import 'geometry.dart';
 import 'label_layer.dart';
 import 'metal.dart';
 import 'paint_kit.dart';
 
-/// The OLED window in the top band.
-const Rect _oled = Rect.fromLTWH(1556, 16, 388, 86);
+/// The OLED window, at the right-hand end of the top band.
+Rect _oled(double width) => Rect.fromLTWH(width - 444, 16, 388, 86);
 
 /// The round load button on the label strip.
 const Offset _loadCentre = Offset(150, 846);
@@ -16,25 +17,22 @@ const double _loadR = 44;
 /// Whether view-box point [p] is on the load button.
 bool hitLoad(Offset p) => (p - _loadCentre).distance <= _loadR + 6;
 
-/// Parts that change every frame or on input: the display, the status lamp
-/// and the load button.
+/// The band's live parts: the display and the status lamp.
 class DisplayPainter extends DeckPainter {
-  DisplayPainter(this.frame, this.episode) : super(repaint: frame);
+  DisplayPainter(super.placement, this.frame, this.episode) : super(repaint: frame);
 
   final DeckFrame frame;
   final Episode episode;
 
   @override
-  void paintDeck(Canvas canvas) {
-    _display(canvas);
-    _lamp(canvas);
-    _loadButton(canvas);
+  void paintDeck(Canvas canvas, Size view) {
+    _display(canvas, _oled(view.width));
+    _lamp(canvas, Offset(view.width * lampAt, 58));
   }
 
   /// White-on-black OLED: a big status word, the elapsed time, and the
   /// episode number in an inverted box — like the TP-7's.
-  void _display(Canvas canvas) {
-    const r = _oled;
+  void _display(Canvas canvas, Rect r) {
     final glass = RRect.fromRectAndRadius(r, const Radius.circular(14));
     canvas
       // Bezel: the window is set into the band.
@@ -51,7 +49,7 @@ class DisplayPainter extends DeckPainter {
       r.left + 22,
       r.top + 46,
     );
-    drawString(
+    drawTabular(
       canvas,
       frame.readout,
       helvetica(size: 23, weight: FontWeight.w600, spacing: 1.5, color: pixel),
@@ -78,8 +76,7 @@ class DisplayPainter extends DeckPainter {
     );
   }
 
-  void _lamp(Canvas canvas) {
-    const c = Offset(800, 58);
+  void _lamp(Canvas canvas, Offset c) {
     final lit = frame.lamp;
     canvas
       ..drawCircle(c + const Offset(0, 1.5), 8, fill(white.withValues(alpha: 0.8)))
@@ -89,6 +86,23 @@ class DisplayPainter extends DeckPainter {
         ..drawCircle(c, 26, blurred(accent.withValues(alpha: 0.45 * lit), 10))
         ..drawCircle(c - const Offset(2, 2), 2.5, fill(white.withValues(alpha: 0.6 * lit)));
     }
+  }
+
+  @override
+  bool shouldRepaint(DisplayPainter oldDelegate) =>
+      oldDelegate.placement != placement || oldDelegate.frame != frame || oldDelegate.episode != episode;
+}
+
+/// The label strip's metal: the seam along its top and the load button.
+class StripPainter extends DeckPainter {
+  StripPainter(super.placement, this.frame) : super(repaint: frame);
+
+  final DeckFrame frame;
+
+  @override
+  void paintDeck(Canvas canvas, Size view) {
+    engraveLine(canvas, const Offset(60, seamY), Offset(view.width - 60, seamY), width: 2, unit: 2);
+    _loadButton(canvas);
   }
 
   /// A plain round button set in a recess, like the TP-7's grey disc.
@@ -124,7 +138,7 @@ class DisplayPainter extends DeckPainter {
   }
 
   @override
-  bool shouldRepaint(DisplayPainter oldDelegate) => oldDelegate.frame != frame || oldDelegate.episode != episode;
+  bool shouldRepaint(StripPainter oldDelegate) => oldDelegate.placement != placement || oldDelegate.frame != frame;
 }
 
 /// "EP. 375" → "375"; dates and words are kept short.

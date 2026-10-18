@@ -33,6 +33,7 @@ TextStyle textStyle({
   double spacing = 0,
   Color? color,
 }) => TextStyle(
+  fontFamily: urbanist,
   fontSize: size,
   fontWeight: weight,
   height: height,
@@ -44,6 +45,40 @@ TextStyle textStyle({
 /// Small uppercase section label.
 TextStyle eyebrow({Color? color}) =>
     textStyle(size: 11.5, weight: FontWeight.w600, spacing: 1.4, alpha: 0.5, color: color);
+
+/// Text whose digits each sit in a fixed-width slot, for numbers that tick
+/// (times, percentages). Urbanist has no tabular figures; see [digitCell].
+class TabularText extends StatelessWidget {
+  const TabularText(this.text, {super.key, this.style});
+
+  final String text;
+  final TextStyle? style;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = DefaultTextStyle.of(context).style.merge(style);
+    final cell = digitCell(s.copyWith(fontSize: MediaQuery.textScalerOf(context).scale(s.fontSize ?? 14)));
+    return Semantics(
+      label: text,
+      child: ExcludeSemantics(
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.baseline,
+          textBaseline: TextBaseline.alphabetic,
+          children: [
+            for (final c in text.split(''))
+              c.codeUnitAt(0) ^ 0x30 <= 9
+                  ? SizedBox(
+                      width: cell,
+                      child: Text(c, style: s, textAlign: TextAlign.center),
+                    )
+                  : Text(c, style: s),
+          ],
+        ),
+      ),
+    );
+  }
+}
 
 /// Square podcast or episode artwork with rounded corners, a soft shadow and
 /// a placeholder while (or if) the image cannot load.

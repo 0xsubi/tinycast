@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/painting.dart';
 
 import 'frame.dart';
@@ -35,19 +37,26 @@ const double _labelText = 700 - 48;
   return (cut == text ? cut : '$cut…', fitted);
 }
 
-/// Whether view-box point [p] is on the episode label.
-bool hitLabel(Offset p) => _label.inflate(4).contains(p);
+/// The label's centre stays clear of the load button on a narrow strip.
+const double _minCentre = 610;
+
+/// The label on a strip [width] view-box units wide: centred, unless that
+/// would run it into the load button.
+Rect labelRect(double width) => _label.shift(Offset(math.max(width / 2, _minCentre) - viewW / 2, 0));
+
+/// Whether view-box point [p] is on the episode label of a strip [width] wide.
+bool hitLabel(Offset p, double width) => labelRect(width).inflate(4).contains(p);
 
 /// The typewritten paper strip naming the loaded episode.
 class LabelPainter extends DeckPainter {
-  LabelPainter({required this.transport, required this.episode}) : super(repaint: transport);
+  LabelPainter(super.placement, {required this.transport, required this.episode}) : super(repaint: transport);
 
   final Transport transport;
   final Episode episode;
 
   @override
-  void paintDeck(Canvas canvas) {
-    const r = _label;
+  void paintDeck(Canvas canvas, Size view) {
+    final r = labelRect(view.width);
     final tagStyle = typewriter(size: 21, spacing: 2, color: rgb(0x4d4232));
     final (show, showStyle) = _fit(
       episode.show.toUpperCase(),
@@ -82,18 +91,19 @@ class LabelPainter extends DeckPainter {
   }
 
   @override
-  bool shouldRepaint(LabelPainter oldDelegate) => oldDelegate.transport != transport || oldDelegate.episode != episode;
+  bool shouldRepaint(LabelPainter oldDelegate) =>
+      oldDelegate.placement != placement || oldDelegate.transport != transport || oldDelegate.episode != episode;
 }
 
 /// The label's "load episode" hint, which brightens on hover.
 class LabelHintPainter extends DeckPainter {
-  LabelHintPainter(this.frame) : super(repaint: frame);
+  LabelHintPainter(super.placement, this.frame) : super(repaint: frame);
 
   final DeckFrame frame;
 
   @override
-  void paintDeck(Canvas canvas) {
-    const r = _label;
+  void paintDeck(Canvas canvas, Size view) {
+    final r = labelRect(view.width);
     canvas.save();
     rotateAbout(canvas, _labelTilt, r.center.dx, r.center.dy);
     drawString(
@@ -108,5 +118,5 @@ class LabelHintPainter extends DeckPainter {
   }
 
   @override
-  bool shouldRepaint(LabelHintPainter oldDelegate) => oldDelegate.frame != frame;
+  bool shouldRepaint(LabelHintPainter oldDelegate) => oldDelegate.placement != placement || oldDelegate.frame != frame;
 }

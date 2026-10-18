@@ -1,4 +1,3 @@
-import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -12,12 +11,17 @@ import 'package:tinycast/main.dart';
 import 'package:tinycast/pages/player_page.dart';
 import 'package:tinycast/playback/playback.dart';
 import 'package:tinycast/player/metal_controls.dart';
+import 'package:tinycast/ui/style.dart' show TabularText;
 
 import 'test_library.dart';
 
 const _episode = Episode(show: 'Test', tag: 'EP. 001', title: 'Episode');
 
-/// Pumps a bare deck and returns a mapper from view-box to global coordinates.
+const _deckSize = Size(1000, 470);
+const _unit = 0.5;
+
+/// Pumps a bare deck and returns a mapper from the label strip's view-box
+/// coordinates to global ones.
 Future<Offset Function(double, double)> _pumpDeck(
   WidgetTester tester,
   Transport transport, {
@@ -26,25 +30,29 @@ Future<Offset Function(double, double)> _pumpDeck(
   await tester.pumpWidget(
     MaterialApp(
       home: Center(
-        child: TapeDeck(transport: transport, episode: _episode, onPickFile: onPickFile ?? () {}, onDropFiles: (_) {}),
+        child: SizedBox.fromSize(
+          size: _deckSize,
+          child: TapeDeck(
+            transport: transport,
+            episode: _episode,
+            onPickFile: onPickFile ?? () {},
+            onDropFiles: (_) {},
+            unit: _unit,
+          ),
+        ),
       ),
     ),
   );
   await tester.pump(const Duration(milliseconds: 16));
-  final rect = tester.getRect(find.byType(TapeDeck));
-  final k = rect.width / viewW;
-  return (x, y) => rect.topLeft + Offset(x * k, y * k);
+  final origin = tester.getTopLeft(find.byType(TapeDeck));
+  final strip = const DeckLayout(_deckSize, _unit).strip;
+  return (x, y) => origin + strip.offset + Offset(x, y) * _unit;
 }
 
 Future<void> _pumpControls(WidgetTester tester, Transport transport) async {
   await tester.pumpWidget(
     MaterialApp(
-      home: Center(
-        child: SizedBox(
-          width: 1000,
-          child: MetalDevice(transport: transport, deck: const SizedBox()),
-        ),
-      ),
+      home: MetalDevice(transport: transport, deck: (_, _) => const SizedBox()),
     ),
   );
   await tester.pump(const Duration(milliseconds: 16));
@@ -126,34 +134,32 @@ void main() {
     expect(transport.time, closeTo(600, 0.01));
     await gesture.up();
     await tester.pump(const Duration(seconds: 1));
-    expect(find.text('-0:00'), findsOneWidget);
+    expect(tester.widget<TabularText>(find.byKey(const Key('remaining'))).text, '-0:00');
   });
 
-  testWidgets('the fader and the knob set the volume', (tester) async {
-    final transport = Transport(600);
-    await _pumpControls(tester, transport);
-
-    final fader = tester.getRect(find.byKey(const Key('volume')));
-    var gesture = await tester.startGesture(fader.center);
-    await gesture.moveTo(fader.bottomCenter - const Offset(0, 2));
-    await tester.pump();
-    expect(transport.volume, 0);
-    await gesture.moveTo(fader.topCenter + const Offset(0, 2));
-    await tester.pump();
-    expect(transport.volume, 1);
-    await gesture.up();
-
-    // Rolling the knob to the right turns the volume down.
-    final knob = tester.getCenter(find.byKey(const Key('volume-knob')));
-    gesture = await tester.startGesture(knob + const Offset(0, 10));
-    await gesture.moveBy(const Offset(30, 0));
-    await gesture.moveBy(const Offset(60, 0));
-    await tester.pump();
-    expect(transport.volume, closeTo(0.7, 0.01));
-    await gesture.up();
-
-    await tester.sendEventToBinding(PointerScrollEvent(position: fader.center, scrollDelta: const Offset(0, 150)));
-    expect(transport.volume, lessThan(0.7));
+  testWidgets('tabular text gives every digit the same width', (tester) async {
+    await tester.runAsync(
+      () => (FontLoader('Urbanist')..addFont(rootBundle.load('assets/fonts/Urbanist-Regular.ttf'))).load(),
+    );
+    const style = TextStyle(fontFamily: 'Urbanist', fontSize: 20);
+    await tester.pumpWidget(
+      const Directionality(
+        textDirection: TextDirection.ltr,
+        child: Column(
+          children: [
+            Text('1:11', key: Key('plain-narrow'), style: style),
+            Text('0:00', key: Key('plain-wide'), style: style),
+            TabularText('1:11', key: Key('narrow'), style: style),
+            TabularText('0:00', key: Key('wide'), style: style),
+          ],
+        ),
+      ),
+    );
+    double width(String key) => tester.getSize(find.byKey(Key(key))).width;
+    // Urbanist's own figures are proportional…
+    expect(width('plain-narrow'), lessThan(width('plain-wide')));
+    // …so TabularText evens them out.
+    expect(width('narrow'), width('wide'));
   });
 
   testWidgets('the load button asks for a file', (tester) async {
@@ -172,7 +178,7 @@ void main() {
     expect(picks, 1);
     // Pressing on the label and releasing elsewhere is not a click.
     final gesture = await tester.startGesture(at(1000, 846));
-    await gesture.moveTo(at(1000, 400));
+    await gesture.moveTo(at(1000, 500));
     await gesture.up();
     expect(picks, 1);
   });
@@ -208,14 +214,47 @@ void main() {
     expect(transport.time, closeTo(start + 15, 0.05));
   });
 
-  testWidgets('the player lays out on a phone-sized screen', (tester) async {
+  testWidgets('the device fills the window, the tape lying down', (tester) async {
+    await tester.pumpWidget(_player(Transport(600, startAt: 100)));
+    await tester.pump();
+    expect(tester.getRect(find.byType(MetalDevice)), Offset.zero & const Size(1240, 880));
+    expect(tester.widget<TapeDeck>(find.byType(TapeDeck)).upright, isFalse);
+  });
+
+  testWidgets('on a phone-sized screen the tape stands up', (tester) async {
     final view = tester.view;
     view.physicalSize = const Size(390, 844);
     addTearDown(view.resetPhysicalSize);
     await tester.pumpWidget(_player(Transport(600, startAt: 100)));
     await tester.pump();
     expect(tester.takeException(), isNull);
-    expect(find.byType(MetalDevice), findsOneWidget);
+    expect(tester.getRect(find.byType(MetalDevice)), Offset.zero & const Size(390, 844));
+    expect(tester.widget<TapeDeck>(find.byType(TapeDeck)).upright, isTrue);
+    // The keys stay the right way up, across the bottom.
+    final play = tester.getRect(find.byKey(const Key('play')));
+    final pause = tester.getRect(find.byKey(const Key('pause')));
+    expect(pause.left, greaterThan(play.left));
+    expect(play.bottom, closeTo(844, 1));
+  });
+
+  test('the mechanism fills the room between the band and the strip', () {
+    // Lying down it spans the full width, framed as before.
+    const flat = DeckLayout(Size(2000, 1200), 1);
+    expect(flat.tape.turned, isFalse);
+    expect(flat.tape.scale, 1);
+    expect(flat.mechanism, const Rect.fromLTRB(0, bandH, 2000, 1200 - stripH));
+
+    // Stood up it turns a quarter, the supply reel above the take-up reel,
+    // filling the room's height.
+    const tall = DeckLayout(Size(1500, 2300), 1, upright: true);
+    final t = tall.tape;
+    expect(t.turned, isTrue);
+    Offset place(Offset p) => t.offset + Offset(-p.dy, p.dx) * t.scale;
+    final supply = place(reels[Side.l]!.centre);
+    final takeUp = place(reels[Side.r]!.centre);
+    expect(supply.dx, closeTo(takeUp.dx, 1e-9));
+    expect(supply.dy, lessThan(takeUp.dy));
+    expect(place(const Offset(viewW, 0)).dy - place(Offset.zero).dy, closeTo(tall.mechanism.height, 1e-9));
   });
 
   test('formatTime matches the web version', () {

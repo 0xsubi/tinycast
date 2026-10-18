@@ -7,10 +7,13 @@ import 'paint_kit.dart';
 /// Static rear layer, drawn over the device's aluminium: the grooves the reels
 /// sit in and the shadows they cast.
 class BackplatePainter extends DeckPainter {
-  static const Rect _all = Rect.fromLTWH(0, 0, viewW, viewH);
+  BackplatePainter(super.placement);
+
+  /// Everywhere the mechanism might be seen, however it is framed.
+  static const Rect _all = Rect.fromLTRB(-viewW, -viewW, 2 * viewW, 2 * viewW);
 
   @override
-  void paintDeck(Canvas canvas) {
+  void paintDeck(Canvas canvas, Size view) {
     // A machined groove around each reel, like the TP-7's platter.
     for (final s in Side.values) {
       engraveCircle(canvas, reels[s]!.centre, reelR + 22, width: 2, unit: 2);
@@ -34,11 +37,8 @@ class BackplatePainter extends DeckPainter {
         ..drawCircle(c + const Offset(2, 5), reelR, blurred(black.withValues(alpha: 0.28), 5));
     }
     canvas.restore();
-
-    // Hairline between the transport and the label strip
-    engraveLine(canvas, const Offset(60, 756), const Offset(viewW - 60, 756), width: 2, unit: 2);
   }
 
   @override
-  bool shouldRepaint(BackplatePainter oldDelegate) => false;
+  bool shouldRepaint(BackplatePainter oldDelegate) => oldDelegate.placement != placement;
 }

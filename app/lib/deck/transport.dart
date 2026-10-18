@@ -7,7 +7,8 @@ import 'package:just_audio/just_audio.dart';
 /// Playback clock for the deck. Drives a real audio player once a file is
 /// loaded; until then it runs a silent simulated clock so the deck still plays.
 /// Time is read every animation frame, so it is exposed as a getter rather
-/// than notified; only discrete changes (play/pause/volume/duration) notify.
+/// than notified; only discrete changes (play/pause/duration) notify. Loudness is
+/// left to the system volume.
 class Transport extends ChangeNotifier {
   Transport(this.duration, {double startAt = 0}) : _simTime = startAt;
 
@@ -17,7 +18,6 @@ class Transport extends ChangeNotifier {
   /// tape is not moving yet.
   bool buffering = false;
   double duration;
-  double volume = 0.72;
 
   AudioPlayer? _player;
   StreamSubscription<PlayerState>? _stateSub;
@@ -85,12 +85,6 @@ class Transport extends ChangeNotifier {
 
   void skip(double delta) => seek(time + delta);
 
-  void setVolume(double v) {
-    volume = v.clamp(0.0, 1.0).toDouble();
-    unawaited(_player?.setVolume(volume));
-    notifyListeners();
-  }
-
   /// Set the tape length (and position) shown while no audio is loaded, or
   /// while a stream is still buffering.
   void cue(double length, {double at = 0}) {
@@ -126,7 +120,6 @@ class Transport extends ChangeNotifier {
     });
 
     try {
-      await player.setVolume(volume);
       final loading = player.setAudioSource(source);
       if (autoplay) unawaited(player.play().catchError((_) {}));
       final d = await loading;

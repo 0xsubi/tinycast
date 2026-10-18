@@ -1,11 +1,25 @@
 import 'dart:math' as math;
 import 'dart:ui';
 
-// All deck coordinates live in a single 2000 × 940 view box. The upper 752
-// units reproduce the reference photo's framing; below the seam is a short
-// strip carrying the episode label.
+// All deck coordinates live in a 2000 × 940 view box: the band across the
+// top, the tape mechanism framed as in the reference photo, and below the
+// seam a short strip carrying the episode label. Each part is placed on
+// screen separately, so the band and strip can stretch across the window
+// and the mechanism can turn on its side.
 const double viewW = 2000;
 const double viewH = 940;
+
+/// Height of the band across the top; the reels turn underneath it.
+const double bandH = 116;
+
+/// The hairline between the mechanism and the label strip.
+const double seamY = 756;
+
+/// Height of the label strip.
+const double stripH = viewH - seamY;
+
+/// The status lamp's distance along the band, as a fraction of its width.
+const double lampAt = 0.4;
 
 enum Side { l, r }
 

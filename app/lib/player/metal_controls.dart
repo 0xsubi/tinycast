@@ -1,7 +1,6 @@
 import 'dart:math' as math;
 
 import 'package:flutter/cupertino.dart';
-import 'package:flutter/gestures.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 
@@ -10,99 +9,63 @@ import '../deck/metal.dart';
 import '../deck/paint_kit.dart';
 import '../deck/textures.dart';
 import '../deck/transport.dart';
-import '../ui/style.dart' show accent;
+import '../ui/style.dart' show TabularText, accent;
 
-// Proportions of the device, as fractions of its width.
-const double _deckH = viewH / viewW;
-const double _seekH = 0.075;
-const double _keysH = 0.15;
-const double _cornerR = 0.032;
-const double _knobW = 0.1;
-const double _knobH = 0.085;
+// Heights of the parts below the deck, in view-box units.
+const double _seekH = 150;
+const double _keysH = 300;
 
-/// How far the knob hangs below the body.
-const double _knobDrop = 0.05;
+/// Logical pixels per view-box unit for a device filling [size]. The fixed
+/// parts (band, label strip, seek slot, keys) take their size from the
+/// window's long side, kept narrow enough for the band to fit across and
+/// short enough to leave the tape mechanism room.
+double deviceUnit(Size size) => math.min(
+  math.min(size.width / 1000, math.max(size.width, size.height) / 2000),
+  size.height / (bandH + stripH + _seekH + _keysH + 350),
+);
 
-/// The device's height for a given width, including the knob.
-double deviceHeight(double width) => width * (_deckH + _seekH + _keysH + _knobDrop);
-
-/// The whole player as one aluminium object: the tape deck on top, then the
-/// seek slot, the transport keys and the volume fader, with the knurled
-/// volume knob hanging out of the bottom edge. After Teenage Engineering's TP-7.
+/// The whole player as one aluminium object filling the window: the tape
+/// deck on top, then the seek slot and the transport keys. After Teenage
+/// Engineering's TP-7.
 class MetalDevice extends StatelessWidget {
   const MetalDevice({super.key, required this.transport, required this.deck});
 
   final Transport transport;
 
-  /// The tape deck, drawn straight onto the body's aluminium.
-  final Widget deck;
+  /// The tape deck, drawn straight onto the body's aluminium, given the
+  /// device's unit and whether the window stands upright.
+  final Widget Function(double unit, bool upright) deck;
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final w = constraints.maxWidth;
-        final bodyH = w * (_deckH + _seekH + _keysH);
-        final radius = Radius.circular(w * _cornerR);
-        return SizedBox(
-          width: w,
-          height: deviceHeight(w),
-          child: Stack(
-            clipBehavior: Clip.none,
-            children: [
-              // The knob comes out from under the body, so it is laid first.
-              Positioned(
-                right: w * (0.14 - _knobW / 2),
-                top: bodyH - w * (_knobH - _knobDrop) - 2,
-                width: w * _knobW,
-                height: w * _knobH,
-                child: VolumeKnob(transport: transport),
-              ),
-              Positioned(
-                left: 0,
-                top: 0,
-                width: w,
-                height: bodyH,
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.all(radius),
-                    boxShadow: [
-                      BoxShadow(color: black.withValues(alpha: 0.16), blurRadius: 60, offset: const Offset(0, 34)),
-                      BoxShadow(color: black.withValues(alpha: 0.14), blurRadius: 8, offset: const Offset(0, 3)),
-                    ],
+    return CustomPaint(
+      painter: const _Body(),
+      foregroundPainter: const _Rim(),
+      // The keys run on below the bottom edge.
+      child: ClipRect(
+        child: SafeArea(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final size = constraints.biggest;
+              final unit = deviceUnit(size);
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Expanded(child: deck(unit, size.height > size.width)),
+                  SizedBox(
+                    height: unit * _seekH,
+                    child: SeekSlot(transport: transport),
                   ),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.all(radius),
-                    child: CustomPaint(
-                      painter: const _Body(),
-                      foregroundPainter: _Rim(radius),
-                      child: Column(
-                        children: [
-                          SizedBox(width: w, height: w * _deckH, child: deck),
-                          SizedBox(
-                            height: w * _seekH,
-                            child: SeekSlot(transport: transport),
-                          ),
-                          SizedBox(
-                            height: w * _keysH,
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.stretch,
-                              children: [
-                                Expanded(flex: 72, child: TransportKeys(transport: transport)),
-                                Expanded(flex: 28, child: VolumeFader(transport: transport)),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
+                  SizedBox(
+                    height: unit * _keysH,
+                    child: TransportKeys(transport: transport),
                   ),
-                ),
-              ),
-            ],
+                ],
+              );
+            },
           ),
-        );
-      },
+        ),
+      ),
     );
   }
 }
@@ -120,14 +83,12 @@ class _Body extends CustomPainter {
 /// Light across the body and its machined edge: a bright chamfer along the
 /// top and a darker one along the bottom.
 class _Rim extends CustomPainter {
-  const _Rim(this.radius);
-
-  final Radius radius;
+  const _Rim();
 
   @override
   void paint(Canvas canvas, Size size) {
     final all = Offset.zero & size;
-    final r = RRect.fromRectAndRadius(all, radius);
+    final r = RRect.fromRectAndRadius(all, Radius.zero);
     canvas
       ..drawRect(
         all,
@@ -148,7 +109,7 @@ class _Rim extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_Rim oldDelegate) => oldDelegate.radius != radius;
+  bool shouldRepaint(_Rim oldDelegate) => false;
 }
 
 /* ---------------------------------------------------------------- seek -- */
@@ -199,8 +160,8 @@ class _SeekSlotState extends State<SeekSlot> with SingleTickerProviderStateMixin
     return true;
   }
 
-  void _seekTo(Offset local, double width) {
-    final f = clamp01((local.dx - width * _slotInset) / (width * (1 - 2 * _slotInset)));
+  void _seekTo(Offset local, double width, double inset) {
+    final f = clamp01((local.dx - inset) / (width - 2 * inset));
     setState(() => _drag = f);
     _transport.seek(f * _transport.duration);
   }
@@ -215,12 +176,13 @@ class _SeekSlotState extends State<SeekSlot> with SingleTickerProviderStateMixin
     return LayoutBuilder(
       builder: (context, constraints) {
         final w = constraints.maxWidth;
+        final unit = constraints.maxHeight / _seekH;
+        final inset = unit * _slotInset;
         final readout = TextStyle(
-          fontSize: w * 0.0125,
+          fontSize: unit * 25,
           fontWeight: FontWeight.w500,
           letterSpacing: 1,
           color: engraving,
-          fontFeatures: const [FontFeature.tabularFigures()],
           shadows: [Shadow(color: white.withValues(alpha: 0.7), offset: const Offset(0, 1))],
         );
         return MouseRegion(
@@ -228,23 +190,23 @@ class _SeekSlotState extends State<SeekSlot> with SingleTickerProviderStateMixin
           child: GestureDetector(
             key: const Key('seek'),
             behavior: HitTestBehavior.opaque,
-            onTapDown: (d) => _seekTo(d.localPosition, w),
+            onTapDown: (d) => _seekTo(d.localPosition, w, inset),
             onTapUp: (_) => _release(),
-            onHorizontalDragStart: (d) => _seekTo(d.localPosition, w),
-            onHorizontalDragUpdate: (d) => _seekTo(d.localPosition, w),
+            onHorizontalDragStart: (d) => _seekTo(d.localPosition, w, inset),
+            onHorizontalDragUpdate: (d) => _seekTo(d.localPosition, w, inset),
             onHorizontalDragEnd: (_) => _release(),
             onHorizontalDragCancel: _release,
             child: CustomPaint(
               painter: _SlotPainter(fraction),
               child: Padding(
-                padding: EdgeInsets.symmetric(horizontal: w * _slotInset),
+                padding: EdgeInsets.symmetric(horizontal: inset),
                 child: Align(
                   alignment: const Alignment(0, 0.95),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Text(formatTime(time), key: const Key('elapsed'), style: readout),
-                      Text('-${formatTime(t.duration - time)}', key: const Key('remaining'), style: readout),
+                      TabularText(formatTime(time), key: const Key('elapsed'), style: readout),
+                      TabularText('-${formatTime(t.duration - time)}', key: const Key('remaining'), style: readout),
                     ],
                   ),
                 ),
@@ -257,7 +219,8 @@ class _SeekSlotState extends State<SeekSlot> with SingleTickerProviderStateMixin
   }
 }
 
-const double _slotInset = 0.05;
+/// The slot's ends, in from the sides, in view-box units.
+const double _slotInset = 100;
 
 class _SlotPainter extends CustomPainter {
   const _SlotPainter(this.fraction);
@@ -266,16 +229,18 @@ class _SlotPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    final w = size.width;
+    // Sized in view-box units, from the height, so the slot keeps its
+    // proportions however wide the window is.
+    final w = size.height / _seekH;
     final x0 = w * _slotInset;
-    final x1 = w - x0;
+    final x1 = size.width - x0;
     final y = size.height * 0.42;
-    final slotH = w * 0.009;
+    final slotH = w * 18;
 
     // Crosshair ticks through the slot at the quarters, as on the TP-7's faders.
     for (var i = 0; i <= 4; i++) {
       final x = x0 + (x1 - x0) * i / 4;
-      final reach = i == 0 || i == 4 ? w * 0.016 : w * 0.011;
+      final reach = i == 0 || i == 4 ? w * 32 : w * 22;
       engraveLine(canvas, Offset(x, y - reach), Offset(x, y + reach), width: 1);
     }
 
@@ -295,11 +260,11 @@ class _SlotPainter extends CustomPainter {
     }
 
     // Thumb: a small machined cap with a centre groove.
-    final tw = w * 0.042;
-    final th = w * 0.03;
+    final tw = w * 84;
+    final th = w * 60;
     final cap = RRect.fromRectAndRadius(
       Rect.fromCenter(center: Offset(tx, y), width: tw, height: th),
-      Radius.circular(w * 0.005),
+      Radius.circular(w * 10),
     );
     canvas
       ..drawRRect(cap.shift(const Offset(0, 3)), blurred(black.withValues(alpha: 0.35), 3))
@@ -578,207 +543,4 @@ class _KeyPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_KeyPainter oldDelegate) => oldDelegate.travel != travel;
-}
-
-/* -------------------------------------------------------------- volume -- */
-
-/// The TP-7's vertical fader: an engraved slot with crosshairs and a cap.
-class VolumeFader extends StatelessWidget {
-  const VolumeFader({super.key, required this.transport});
-
-  final Transport transport;
-
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final h = constraints.maxHeight;
-        final top = h * 0.2;
-        final bottom = h * 0.78;
-        void set(Offset p) => transport.setVolume(1 - (p.dy - top) / (bottom - top));
-        return Listener(
-          onPointerSignal: (e) {
-            if (e is PointerScrollEvent) {
-              GestureBinding.instance.pointerSignalResolver.register(
-                e,
-                (_) => transport.setVolume(transport.volume - e.scrollDelta.dy / 1500),
-              );
-            }
-          },
-          child: MouseRegion(
-            cursor: SystemMouseCursors.resizeUpDown,
-            child: GestureDetector(
-              key: const Key('volume'),
-              behavior: HitTestBehavior.opaque,
-              onTapDown: (d) => set(d.localPosition),
-              onVerticalDragStart: (d) => set(d.localPosition),
-              onVerticalDragUpdate: (d) => set(d.localPosition),
-              child: ListenableBuilder(
-                listenable: transport,
-                builder: (context, _) => CustomPaint(
-                  painter: _FaderPainter(transport.volume, top: top, bottom: bottom),
-                  size: Size.infinite,
-                ),
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
-}
-
-class _FaderPainter extends CustomPainter {
-  const _FaderPainter(this.volume, {required this.top, required this.bottom});
-
-  final double volume;
-  final double top;
-  final double bottom;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final x = size.width * 0.32;
-    final unit = size.height / 100;
-    final slotW = unit * 3.2;
-
-    // Crosshair across the middle, and end marks.
-    final mid = (top + bottom) / 2;
-    engraveLine(canvas, Offset(x - unit * 14, mid), Offset(x + unit * 14, mid), width: 1);
-    for (final y in [top, bottom]) {
-      engraveLine(canvas, Offset(x - unit * 7, y), Offset(x + unit * 7, y), width: 1);
-    }
-    final slot = RRect.fromLTRBR(x - slotW / 2, top - slotW, x + slotW / 2, bottom + slotW, Radius.circular(slotW / 2));
-    canvas
-      ..drawRRect(slot.shift(const Offset(0, 1.2)), fill(white.withValues(alpha: 0.85)))
-      ..drawRRect(slot, fill(gap));
-
-    // Cap.
-    final y = bottom - (bottom - top) * volume;
-    final cap = RRect.fromRectAndRadius(
-      Rect.fromCenter(center: Offset(x, y), width: unit * 20, height: unit * 8),
-      Radius.circular(unit * 1.5),
-    );
-    canvas
-      ..drawRRect(cap.shift(Offset(0, unit * 1.5)), blurred(black.withValues(alpha: 0.35), 3))
-      ..drawRRect(cap, fill(keyAluminium))
-      ..save()
-      ..clipRRect(cap)
-      ..drawRect(cap.outerRect, pattern(Textures.bead, 0.16, blend: BlendMode.overlay))
-      ..drawRect(Rect.fromLTWH(cap.left, cap.top, cap.width, unit), fill(white.withValues(alpha: 0.8)))
-      ..restore()
-      ..drawRRect(cap.deflate(0.5), stroke(black.withValues(alpha: 0.25), 1));
-    engraveLine(canvas, Offset(x - unit * 6, y), Offset(x + unit * 6, y), width: 1.2);
-
-    // Lettering.
-    final type = panelType(size: unit * 8.5, weight: FontWeight.w500, spacing: unit * 0.6);
-    engraveText(canvas, 'VOL', type, x + unit * 18, mid + unit * 3);
-    engraveText(canvas, '+', panelType(size: unit * 11), x + unit * 12, top + unit * 4);
-    engraveText(canvas, '−', panelType(size: unit * 11), x + unit * 12, bottom + unit * 4);
-  }
-
-  @override
-  bool shouldRepaint(_FaderPainter oldDelegate) =>
-      oldDelegate.volume != volume || oldDelegate.top != top || oldDelegate.bottom != bottom;
-}
-
-/// Knurled volume knob coming out of the bottom edge. Drag or scroll to turn
-/// it; the knurl rolls past as it does.
-class VolumeKnob extends StatelessWidget {
-  const VolumeKnob({super.key, required this.transport});
-
-  final Transport transport;
-
-  void _nudge(double delta) => transport.setVolume(transport.volume + delta);
-
-  @override
-  Widget build(BuildContext context) {
-    return Listener(
-      onPointerSignal: (e) {
-        if (e is PointerScrollEvent) {
-          GestureBinding.instance.pointerSignalResolver.register(e, (_) => _nudge(-e.scrollDelta.dy / 1500));
-        }
-      },
-      onPointerPanZoomUpdate: (e) => _nudge(e.panDelta.dy / 1500),
-      child: MouseRegion(
-        cursor: SystemMouseCursors.resizeLeftRight,
-        child: GestureDetector(
-          key: const Key('volume-knob'),
-          behavior: HitTestBehavior.opaque,
-          // Rolling the knob sideways turns it, as with a thumbwheel.
-          onHorizontalDragUpdate: (d) => _nudge(-d.delta.dx / 300),
-          child: ListenableBuilder(
-            listenable: transport,
-            builder: (context, _) => CustomPaint(painter: _KnobPainter(transport.volume), size: Size.infinite),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _KnobPainter extends CustomPainter {
-  const _KnobPainter(this.volume);
-
-  final double volume;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final body = RRect.fromRectAndCorners(
-      Offset.zero & size,
-      bottomLeft: Radius.circular(size.width * 0.08),
-      bottomRight: Radius.circular(size.width * 0.08),
-    );
-    // Shadow on the surface below.
-    canvas.drawOval(
-      Rect.fromLTWH(size.width * 0.05, size.height * 0.9, size.width * 0.9, size.height * 0.2),
-      blurred(black.withValues(alpha: 0.28), 6),
-    );
-    canvas
-      ..save()
-      ..clipRRect(body)
-      ..drawRect(Offset.zero & size, fill(rgb(0xb4b4b2)));
-
-    // Diamond knurl: two sets of diagonals, shifted as the knob turns.
-    final pitch = size.width / 11;
-    final phase = (volume * size.width * 2.2) % pitch;
-    final dark = stroke(black.withValues(alpha: 0.38), pitch * 0.32);
-    final light = stroke(white.withValues(alpha: 0.35), pitch * 0.14);
-    for (var x = -size.height - pitch; x < size.width + size.height + pitch; x += pitch) {
-      final x0 = x + phase;
-      canvas
-        ..drawLine(Offset(x0, 0), Offset(x0 + size.height, size.height), dark)
-        ..drawLine(Offset(x0 + size.height, 0), Offset(x0, size.height), dark)
-        ..drawLine(Offset(x0 + pitch * 0.3, 0), Offset(x0 + pitch * 0.3 + size.height, size.height), light);
-    }
-
-    // A cylinder: dark at the edges, a bright band just left of centre.
-    canvas
-      ..drawRect(
-        Offset.zero & size,
-        shaded(
-          boxLinear(Offset.zero & size, 0, 0, 1, 0, [
-            (0, black.withValues(alpha: 0.55)),
-            (0.22, black.withValues(alpha: 0.05)),
-            (0.38, white.withValues(alpha: 0.32)),
-            (0.5, white.withValues(alpha: 0.05)),
-            (0.8, black.withValues(alpha: 0.25)),
-            (1, black.withValues(alpha: 0.6)),
-          ]),
-        ),
-      )
-      // Chamfered bottom face.
-      ..drawRect(
-        Rect.fromLTWH(0, size.height - size.height * 0.1, size.width, size.height * 0.1),
-        shaded(
-          boxLinear(Rect.fromLTWH(0, size.height * 0.9, size.width, size.height * 0.1), 0, 0, 0, 1, [
-            (0, white.withValues(alpha: 0.35)),
-            (1, black.withValues(alpha: 0.25)),
-          ]),
-        ),
-      )
-      ..restore();
-  }
-
-  @override
-  bool shouldRepaint(_KnobPainter oldDelegate) => oldDelegate.volume != volume;
 }

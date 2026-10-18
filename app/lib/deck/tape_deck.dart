@@ -30,8 +30,55 @@ const double _hintEase = 0.045; // opacity 150ms
 const double _lampEase = 0.06;
 const double _buttonEase = 0.025;
 
-/// How long the display shows the volume after it changes (s).
-const double _volumeShown = 1.4;
+/// The upright mechanism is framed from the far edge of the reels' grooves
+/// to the seam, so whole reels show beside the heads.
+const double _reelEdge = -26 - reelR - 22;
+
+/// Where the deck's parts sit in a box of [size], at [unit] logical pixels
+/// per view-box unit: the band across the top, the label strip along the
+/// bottom, and the tape mechanism scaled to fill the room between, turned on
+/// its side when the device stands [upright].
+class DeckLayout {
+  const DeckLayout(this.size, this.unit, {this.upright = false});
+
+  final Size size;
+  final double unit;
+  final bool upright;
+
+  /// Width of the band and the strip, in view-box units.
+  double get width => size.width / unit;
+
+  double get _stripTop => size.height - stripH * unit;
+
+  /// The room between the band and the strip.
+  Rect get mechanism => Rect.fromLTRB(0, bandH * unit, size.width, math.max(bandH * unit, _stripTop));
+
+  Placement get band => Placement(unit);
+
+  /// The strip keeps its view-box coordinates, with the seam at its top.
+  Placement get strip => Placement(unit, offset: Offset(0, _stripTop - seamY * unit));
+
+  /// The mechanism, relative to [mechanism]. Lying down it is framed as in
+  /// the reference photo, the band cutting off the tops of the reels; stood
+  /// up it turns a quarter clockwise, the supply reel on top.
+  Placement get tape {
+    final room = mechanism.size;
+    final centre = room.center(Offset.zero);
+    if (!upright) {
+      final s = math.min(room.width / viewW, room.height / (seamY - bandH));
+      return Placement(s, offset: centre - const Offset(viewW / 2, (bandH + seamY) / 2) * s);
+    }
+    final s = math.min(room.width / (seamY - _reelEdge), room.height / viewW);
+    // Turned, view (x, y) lands at (-y, x).
+    return Placement(s, offset: centre - const Offset(-(_reelEdge + seamY) / 2, viewW / 2) * s, turned: true);
+  }
+
+  /// [local] in the strip's view-box units.
+  Offset toStrip(Offset local) => (local - strip.offset) / unit;
+}
+
+/// Size of a button set into the band, at [unit].
+double bandButtonSize(double unit) => math.min(44, bandH * unit * 0.62);
 
 class TapeDeck extends StatefulWidget {
   const TapeDeck({
@@ -40,6 +87,10 @@ class TapeDeck extends StatefulWidget {
     required this.episode,
     required this.onPickFile,
     required this.onDropFiles,
+    this.unit = 0.5,
+    this.upright = false,
+    this.failed = false,
+    this.leading,
     this.acceptsDrops = false,
   });
 
@@ -47,6 +98,19 @@ class TapeDeck extends StatefulWidget {
   final Episode episode;
   final VoidCallback onPickFile;
   final ValueChanged<List<DropItem>> onDropFiles;
+
+  /// Logical pixels per view-box unit for the band and the strip.
+  final double unit;
+
+  /// Stand the tape mechanism on its side, for a portrait screen.
+  final bool upright;
+
+  /// Playback failed; the display says so.
+  final bool failed;
+
+  /// A button set into the left of the band, before the wordmark.
+  final Widget? leading;
+
   final bool acceptsDrops;
 
   @override
@@ -67,9 +131,6 @@ class _TapeDeckState extends State<TapeDeck> with SingleTickerProviderStateMixin
   bool _loadHover = false;
   bool _dragOver = false;
 
-  late double _volume;
-  double _volumeAge = _volumeShown;
-
   Transport get _transport => widget.transport;
 
   @override
@@ -77,7 +138,6 @@ class _TapeDeckState extends State<TapeDeck> with SingleTickerProviderStateMixin
     super.initState();
     final t = _transport;
     _display = t.time;
-    _volume = t.volume;
     _frame = DeckFrame(clamp01(t.time / math.max(1, t.duration)))..lamp = t.playing ? 1 : 0;
     _ticker = createTicker(_onTick)..start();
   }
@@ -132,37 +192,24 @@ class _TapeDeckState extends State<TapeDeck> with SingleTickerProviderStateMixin
     f.lamp += ((t.playing && !t.buffering ? 1 : 0) - f.lamp) * ease(_lampEase);
     f.loadTravel += ((_loadPointers.isNotEmpty ? 1 : 0) - f.loadTravel) * ease(_buttonEase);
 
-    // The display: the volume briefly after it changes, otherwise the state
-    // of the tape and the elapsed time.
-    if (t.volume != _volume) {
-      _volume = t.volume;
-      _volumeAge = 0;
-    }
-    _volumeAge += dt;
-    if (_volumeAge < _volumeShown) {
-      f.headline = 'VOL';
-      f.readout = '${(t.volume * 100).round()}';
-    } else {
-      f.headline = switch (t) {
-        _ when t.buffering => 'LOAD',
-        _ when diff.abs() > _snap => 'WIND',
-        _ when t.playing => 'PLAY',
-        _ => 'PAUSE',
-      };
-      f.readout = displayTime(actual);
-    }
+    // The display: the state of the tape and the elapsed time.
+    f.headline = switch (t) {
+      _ when widget.failed => 'ERROR',
+      _ when t.buffering => 'LOAD',
+      _ when diff.abs() > _snap => 'WIND',
+      _ when t.playing => 'PLAY',
+      _ => 'PAUSE',
+    };
+    f.readout = displayTime(actual);
     f.changed();
   }
 
   /* ---------------------------------------------------------------- input -- */
 
-  Offset _toView(Offset local) {
-    final box = context.findRenderObject()! as RenderBox;
-    return local * (viewW / box.size.width);
-  }
+  DeckLayout get _layout => DeckLayout(context.size!, widget.unit, upright: widget.upright);
 
-  bool _onLabel(Offset local) => hitLabel(_toView(local));
-  bool _onLoad(Offset local) => hitLoad(_toView(local));
+  bool _onLabel(Offset local) => hitLabel(_layout.toStrip(local), _layout.width);
+  bool _onLoad(Offset local) => hitLoad(_layout.toStrip(local));
 
   void _onDown(PointerDownEvent e) {
     if (_onLabel(e.localPosition)) _labelPointers.add(e.pointer);
@@ -201,54 +248,82 @@ class _TapeDeckState extends State<TapeDeck> with SingleTickerProviderStateMixin
   /* --------------------------------------------------------------- layout -- */
 
   @override
-  Widget build(BuildContext context) {
-    Widget layer(CustomPainter painter, {bool still = false}) => Positioned.fill(
-      child: RepaintBoundary(
-        child: CustomPaint(painter: painter, isComplex: still, willChange: !still),
-      ),
-    );
-
-    // The deck is drawn onto the device's aluminium; see the player's body.
-    Widget deck = MouseRegion(
-      cursor: _labelHover || _loadHover ? SystemMouseCursors.click : MouseCursor.defer,
-      onHover: _onHover,
-      onExit: _onExit,
-      child: Listener(
-        onPointerDown: _onDown,
-        onPointerUp: _onUp,
-        onPointerCancel: _onCancel,
-        child: Stack(
-          children: [
-            layer(BackplatePainter(), still: true),
-            layer(ReelsPainter(_frame)),
-            layer(FrontPainter(), still: true),
-            layer(LabelPainter(transport: _transport, episode: widget.episode)),
-            layer(LabelHintPainter(_frame)),
-            layer(DisplayPainter(_frame, widget.episode)),
-            Positioned.fill(
-              child: IgnorePointer(
-                child: CustomPaint(painter: _DropRim(dropping: _dragOver)),
-              ),
-            ),
-          ],
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      final layout = DeckLayout(constraints.biggest, widget.unit, upright: widget.upright);
+      Widget layer(CustomPainter painter, {bool still = false}) => Positioned.fill(
+        child: RepaintBoundary(
+          child: CustomPaint(painter: painter, isComplex: still, willChange: !still),
         ),
-      ),
-    );
-
-    if (widget.acceptsDrops) {
-      deck = DropTarget(
-        onDragEntered: (_) => setState(() => _dragOver = true),
-        onDragExited: (_) => setState(() => _dragOver = false),
-        onDragDone: (d) {
-          setState(() => _dragOver = false);
-          widget.onDropFiles(d.files);
-        },
-        child: deck,
       );
-    }
 
-    return AspectRatio(aspectRatio: viewW / viewH, child: deck);
-  }
+      // Leave room in the band for the leading button: 16 px either side.
+      final leadingSize = bandButtonSize(widget.unit);
+      final inset = widget.leading == null ? 70.0 : (leadingSize + 32) / widget.unit;
+      final tape = layout.tape;
+      final band = layout.band;
+      final strip = layout.strip;
+
+      // The deck is drawn onto the device's aluminium; see the player's body.
+      Widget deck = MouseRegion(
+        cursor: _labelHover || _loadHover ? SystemMouseCursors.click : MouseCursor.defer,
+        onHover: _onHover,
+        onExit: _onExit,
+        child: Listener(
+          onPointerDown: _onDown,
+          onPointerUp: _onUp,
+          onPointerCancel: _onCancel,
+          child: Stack(
+            children: [
+              Positioned.fromRect(
+                rect: layout.mechanism,
+                child: ClipRect(
+                  child: Stack(
+                    children: [
+                      layer(BackplatePainter(tape), still: true),
+                      layer(ReelsPainter(tape, _frame)),
+                      layer(FrontPainter(tape), still: true),
+                    ],
+                  ),
+                ),
+              ),
+              layer(BandPainter(band, inset: inset), still: true),
+              layer(DisplayPainter(band, _frame, widget.episode)),
+              layer(StripPainter(strip, _frame)),
+              layer(LabelPainter(strip, transport: _transport, episode: widget.episode)),
+              layer(LabelHintPainter(strip, _frame)),
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: CustomPaint(painter: _DropRim(dropping: _dragOver)),
+                ),
+              ),
+              if (widget.leading != null)
+                Positioned(
+                  left: 16,
+                  top: (bandH * widget.unit - leadingSize) / 2,
+                  width: leadingSize,
+                  height: leadingSize,
+                  child: widget.leading!,
+                ),
+            ],
+          ),
+        ),
+      );
+
+      if (widget.acceptsDrops) {
+        deck = DropTarget(
+          onDragEntered: (_) => setState(() => _dragOver = true),
+          onDragExited: (_) => setState(() => _dragOver = false),
+          onDragDone: (d) {
+            setState(() => _dragOver = false);
+            widget.onDropFiles(d.files);
+          },
+          child: deck,
+        );
+      }
+      return deck;
+    },
+  );
 }
 
 /// CSS `box-shadow: 0 y blur color`. Flutter's blur radius maps to sigma
