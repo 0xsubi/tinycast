@@ -145,6 +145,66 @@ void main() {
     await library.close();
   });
 
+  test('episodes left part-way are listed with a copy of each, most recent first', () async {
+    var library = await open();
+    final changes = <void>[];
+    library.progressChanges.addListener(() => changes.add(null));
+    await library.setProgress(_show, _episode('a'), 600, length: 4000);
+    await library.setProgress(_show, _episode('b'), 120);
+    expect(changes, hasLength(2));
+    await library.close();
+
+    library = await open();
+    final listening = library.listening;
+    expect([for (final l in listening) l.episode.id], ['b', 'a']);
+    final a = listening.last;
+    expect(a.podcast.title, 'Gadget Hour');
+    expect(a.podcast.artwork, 'https://example.com/art.jpg');
+    expect(a.episode.title, 'Episode a: phones/laptops?');
+    expect(a.episode.description, 'Notes for a');
+    // The length the player found wins over the feed's.
+    expect(a.total, 4000);
+    expect(a.fraction, closeTo(0.15, 1e-9));
+    expect(listening.first.total, 3725);
+
+    // A later save without a length keeps the one already known.
+    await library.setProgress(_show, _episode('a'), 700);
+    expect(library.listeningTo(_show, _episode('a'))!.total, 4000);
+    expect(library.listening.first.episode.id, 'a');
+
+    await library.setProgress(_show, _episode('a'), null);
+    expect([for (final l in library.listening) l.episode.id], ['b']);
+    await library.close();
+  });
+
+  test('a version 2 library keeps its progress and lists it once replayed', () async {
+    final path = p.join(temp.path, 'library.db');
+    var library = await open();
+    await library.close();
+    // Roll the file back to the second schema, with a bare progress row.
+    final db = await databaseFactoryFfiNoIsolate.openDatabase(path);
+    await db.execute('DROP TABLE progress');
+    await db.execute('''
+      CREATE TABLE progress (
+        feed TEXT NOT NULL,
+        id TEXT NOT NULL,
+        position REAL NOT NULL,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (feed, id)
+      )''');
+    await db.insert('progress', {'feed': _show.feed.toString(), 'id': 'a', 'position': 90, 'updated_at': 0});
+    await db.setVersion(2);
+    await db.close();
+
+    library = await open();
+    expect(library.progress(_show, _episode('a')), 90);
+    // Nothing to show it with until it is played again.
+    expect(library.listening, isEmpty);
+    await library.setProgress(_show, _episode('a'), 95);
+    expect(library.listening.single.episode.title, 'Episode a: phones/laptops?');
+    await library.close();
+  });
+
   group('downloads', () {
     late HttpServer server;
     final audio = List<int>.generate(200000, (i) => i % 256);

@@ -1,6 +1,8 @@
 import 'package:flutter/cupertino.dart';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
+import '../deck/paint_kit.dart' show white;
+import '../library/library.dart';
 import '../podcast/format.dart';
 import '../podcast/models.dart';
 import 'chrome.dart';
@@ -192,7 +194,6 @@ class ShowCard extends StatelessWidget {
   Widget build(BuildContext context) => _Tappable(
     onTap: onTap,
     child: GlassCard(
-      quality: cardGlass,
       padding: const EdgeInsets.all(10),
       shape: const LiquidRoundedSuperellipse(borderRadius: 22),
       child: LayoutBuilder(
@@ -226,24 +227,29 @@ class ShowCard extends StatelessWidget {
 const double episodeRowHeight = 318;
 
 /// An episode as a card of its own: its artwork (the show's when it has
-/// none), the show, the title and when it came out.
+/// none), the show, the title and when it came out. With [listening], how
+/// much of it has been heard instead.
 class EpisodeTile extends StatelessWidget {
-  const EpisodeTile({super.key, required this.podcast, required this.episode, required this.onTap});
+  const EpisodeTile({super.key, required this.podcast, required this.episode, required this.onTap, this.listening});
 
   final Podcast podcast;
   final PodcastEpisode episode;
   final VoidCallback onTap;
+  final Listening? listening;
 
   @override
   Widget build(BuildContext context) {
-    final meta = [
-      if (episode.published != null) formatDate(episode.published!),
-      if (episode.duration != null) formatLength(episode.duration!),
-    ].join(' · ');
+    final heard = listening;
+    final meta = heard != null
+        ? heardOf(heard)
+        : [
+            if (episode.published != null) formatDate(episode.published!),
+            if (episode.duration != null) formatLength(episode.duration!),
+          ].join(' · ');
+    final fraction = heard?.fraction;
     return _Tappable(
       onTap: onTap,
       child: GlassCard(
-        quality: cardGlass,
         padding: const EdgeInsets.all(10),
         shape: const LiquidRoundedSuperellipse(borderRadius: 22),
         child: LayoutBuilder(
@@ -265,11 +271,52 @@ class EpisodeTile extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
                 style: textStyle(size: 14, weight: FontWeight.w600, height: 1.25),
               ),
+              if (fraction != null) ...[
+                const SizedBox(height: 10),
+                ProgressLine(key: const Key('heard'), fraction: fraction, radius: 1.5),
+              ],
               if (meta.isNotEmpty) ...[
-                const SizedBox(height: 4),
+                SizedBox(height: fraction != null ? 6 : 4),
                 Text(meta, maxLines: 1, overflow: TextOverflow.ellipsis, style: textStyle(size: 12.5, alpha: 0.55)),
               ],
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// "1 hr 2 min / 3 hr 50 min": how much of an episode has been heard, of how much.
+String heardOf(Listening l) {
+  final total = l.total;
+  return total == null ? '${formatLength(l.position)} in' : '${formatLength(l.position)} / ${formatLength(total)}';
+}
+
+/// A thin bar filled from the left with how much of an episode has been heard.
+class ProgressLine extends StatelessWidget {
+  const ProgressLine({super.key, required this.fraction, this.height = 3, this.radius = 0, this.track});
+
+  /// 0–1.
+  final double fraction;
+  final double height;
+  final double radius;
+
+  /// The unfilled part; a faint ink by default.
+  final Color? track;
+
+  @override
+  Widget build(BuildContext context) {
+    final r = BorderRadius.circular(radius);
+    return SizedBox(
+      height: height,
+      child: DecoratedBox(
+        decoration: BoxDecoration(color: track ?? inkAt(0.15), borderRadius: r),
+        child: FractionallySizedBox(
+          alignment: Alignment.centerLeft,
+          widthFactor: fraction.clamp(0.0, 1.0),
+          child: DecoratedBox(
+            decoration: BoxDecoration(color: white, borderRadius: r),
           ),
         ),
       ),

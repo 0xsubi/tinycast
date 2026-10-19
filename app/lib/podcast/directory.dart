@@ -5,15 +5,6 @@ import 'dart:isolate';
 import 'feed.dart';
 import 'models.dart';
 
-/// Shown before the first search.
-final Podcast waveform = Podcast(
-  title: 'Waveform: The MKBHD Podcast',
-  author: 'MKBHD',
-  feed: Uri.parse('https://feeds.megaphone.fm/STU4418364045'),
-  artwork: 'https://is1-ssl.mzstatic.com/image/thumb/Podcasts221/v4/92/dd/8e/92dd8eed-43ec-dc47-50ae-c1ec7c0a3353/mza_3861776104886813687.jpg/600x600bb.jpg',
-  genre: 'Technology',
-);
-
 /// Finds shows and reads their feeds.
 abstract class PodcastDirectory {
   Future<List<Podcast>> search(String term);

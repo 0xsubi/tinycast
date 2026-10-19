@@ -111,9 +111,14 @@ class Playback extends ChangeNotifier {
     error = null;
     notifyListeners();
     final title = name.replaceFirst(RegExp(r'\.[^.]+$'), '');
-    final source = AudioSource.uri(uri, tag: MediaItem(id: uri.toString(), title: title, album: 'Local File'));
+    final source = AudioSource.uri(
+      uri,
+      tag: MediaItem(id: uri.toString(), title: title, album: 'Local File'),
+    );
     if (await _thread(load, source, null)) {
-      current = NowPlaying(label: Episode(show: 'Local File', tag: 'EP. 001', title: title));
+      current = NowPlaying(
+        label: Episode(show: 'Local File', tag: 'EP. 001', title: title),
+      );
       notifyListeners();
     }
   }
@@ -160,7 +165,7 @@ class Playback extends ChangeNotifier {
     final t = transport.time;
     final d = transport.duration;
     final keep = t > _rewind && (d <= 0 || t < d - _finished);
-    unawaited(library.setProgress(podcast, episode, keep ? t : null));
+    unawaited(library.setProgress(podcast, episode, keep ? t : null, length: d > 0 ? d : null));
   }
 
   @override

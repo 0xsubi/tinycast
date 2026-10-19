@@ -15,8 +15,12 @@ import 'podcast_page.dart';
 /// Most shows Latest Episodes lists an episode from.
 const int _latestCount = 20;
 
-/// Home: the newest episodes of the user's shows, the shows themselves, then
-/// the top shows for each of their interests.
+/// Most episodes Continue lists.
+const int _continueCount = 20;
+
+/// Home: the newest episodes of the user's shows, the episodes they left
+/// part-way, the shows themselves, then the top shows for each of their
+/// interests.
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
 
@@ -35,6 +39,7 @@ class HomePage extends StatelessWidget {
               const PageHeading(title: 'Home'),
               // Keyed on the shows, so subscribing reloads it.
               _LatestEpisodes(key: ValueKey(shows.map((s) => s.feed).join('\n')), shows: shows),
+              const _ContinueListening(),
               ContentColumn(child: sectionHeading('YOUR PODCASTS')),
               if (shows.isEmpty)
                 ContentColumn(child: sectionHint('Shows you subscribe to will appear here.'))
@@ -143,6 +148,51 @@ class _LatestEpisodesState extends State<_LatestEpisodes> {
       const SizedBox(height: 30),
     ],
   );
+}
+
+/// Episodes the user left part-way, most recently played first, with how much
+/// of each they have heard. Absent while there are none.
+class _ContinueListening extends StatelessWidget {
+  const _ContinueListening();
+
+  @override
+  Widget build(BuildContext context) {
+    final library = AppScope.of(context).library;
+    return ListenableBuilder(
+      listenable: library.progressChanges,
+      builder: (context, _) {
+        final listening = library.listening.take(_continueCount).toList();
+        if (listening.isEmpty) return const SizedBox.shrink();
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ContentColumn(child: sectionHeading('CONTINUE WHERE YOU LEFT OFF')),
+            CardRow(
+              key: const Key('continue-listening'),
+              height: episodeRowHeight,
+              width: 200,
+              itemCount: listening.length,
+              itemBuilder: (context, i) {
+                final l = listening[i];
+                return EpisodeTile(
+                  key: ValueKey('continue-${l.episode.id}'),
+                  podcast: l.podcast,
+                  episode: l.episode,
+                  listening: l,
+                  onTap: () => Navigator.of(context).push(
+                    CupertinoPageRoute<void>(
+                      builder: (_) => EpisodePage(podcast: l.podcast, episode: l.episode),
+                    ),
+                  ),
+                );
+              },
+            ),
+            const SizedBox(height: 30),
+          ],
+        );
+      },
+    );
+  }
 }
 
 /// The top shows for each of the user's interests, or an invitation to pick some.

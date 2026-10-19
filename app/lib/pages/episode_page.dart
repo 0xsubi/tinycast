@@ -9,6 +9,7 @@ import '../playback/playback.dart';
 import '../podcast/format.dart';
 import '../podcast/models.dart';
 import '../ui/chrome.dart';
+import '../ui/sections.dart';
 import '../ui/style.dart';
 
 /// One episode: artwork, metadata and show notes, with Play, favorite and
@@ -136,8 +137,9 @@ String? _format(String? mime) => switch (mime?.toLowerCase()) {
   _ => null,
 };
 
-/// The orange Play pill. Says "Resume" / "Open player" when this episode is
-/// already on the deck.
+/// The orange Play pill. Says "Resume" when this episode was left part-way
+/// or is paused on the deck, with how much has been heard along its bottom
+/// edge, and "Now playing" while it plays.
 class _PlayButton extends StatelessWidget {
   const _PlayButton({required this.podcast, required this.episode, required this.onPlay});
 
@@ -145,35 +147,69 @@ class _PlayButton extends StatelessWidget {
   final PodcastEpisode episode;
   final VoidCallback onPlay;
 
+  static const LiquidRoundedSuperellipse _shape = LiquidRoundedSuperellipse(borderRadius: 26);
+  static const double _height = 52;
+
   @override
   Widget build(BuildContext context) {
-    final playback = AppScope.of(context).playback;
+    final scope = AppScope.of(context);
+    final playback = scope.playback;
+    final library = scope.library;
     return ListenableBuilder(
-      listenable: Listenable.merge([playback, playback.transport]),
+      listenable: Listenable.merge([playback, playback.transport, library.progressChanges]),
       builder: (context, _) {
+        final transport = playback.transport;
         final loaded = playback.current?.episode?.id == episode.id && playback.current?.podcast == podcast;
-        final (icon, label) = !loaded
-            ? (CupertinoIcons.play_fill, 'Play')
-            : playback.transport.playing
-            ? (CupertinoIcons.waveform, 'Now playing')
-            : (CupertinoIcons.play_fill, 'Resume');
+        final left = loaded ? null : library.listeningTo(podcast, episode);
+        final (icon, label, heard) = switch (loaded) {
+          true when transport.playing => (CupertinoIcons.waveform, 'Now playing', null),
+          true => (
+            CupertinoIcons.play_fill,
+            'Resume',
+            transport.duration > 0 ? transport.time / transport.duration : null,
+          ),
+          false when left != null => (CupertinoIcons.play_fill, 'Resume', left.fraction),
+          false => (CupertinoIcons.play_fill, 'Play', null),
+        };
         return GlassButton.custom(
           key: const Key('play-episode'),
           onTap: onPlay,
-          height: 52,
-          shape: const LiquidRoundedSuperellipse(borderRadius: 26),
+          height: _height,
+          shape: _shape,
           settings: accentGlass,
           glowColor: accent.withValues(alpha: 0.5),
           stretch: 0.25,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 30),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(icon, color: ink, size: 20),
-                const SizedBox(width: 10),
-                Text(label, style: textStyle(size: 16, weight: FontWeight.w600, alpha: 1)),
-              ],
+          child: ClipPath(
+            clipper: const ShapeBorderClipper(shape: _shape),
+            child: SizedBox(
+              height: _height,
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 30),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(icon, color: ink, size: 20),
+                        const SizedBox(width: 10),
+                        Text(label, style: textStyle(size: 16, weight: FontWeight.w600, alpha: 1)),
+                      ],
+                    ),
+                  ),
+                  if (heard != null && heard > 0)
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      child: ProgressLine(
+                        key: const Key('resume-progress'),
+                        fraction: heard,
+                        track: ink.withValues(alpha: 0.25),
+                      ),
+                    ),
+                ],
+              ),
             ),
           ),
         );

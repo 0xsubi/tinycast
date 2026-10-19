@@ -3,15 +3,15 @@ import 'dart:async';
 import 'package:flutter/cupertino.dart';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
+import '../library/searches.dart';
 import '../playback/playback.dart';
-import '../podcast/directory.dart';
 import '../podcast/models.dart';
 import '../ui/chrome.dart';
 import '../ui/sections.dart';
 import '../ui/style.dart';
 import 'podcast_page.dart';
 
-/// Search the podcast directory.
+/// Search the podcast directory. Before a search, lists the recent ones.
 class SearchPage extends StatefulWidget {
   const SearchPage({super.key});
 
@@ -49,8 +49,26 @@ class _SearchPageState extends State<SearchPage> {
     });
   }
 
-  void _open(Podcast podcast) =>
-      Navigator.of(context).push(CupertinoPageRoute<void>(builder: (_) => PodcastPage(podcast: podcast)));
+  /// Searches on Return, and remembers the term; a term typed and left is not.
+  void _submit(String text) {
+    _search(text);
+    unawaited(rememberSearch(AppScope.of(context).library, text));
+  }
+
+  /// Searches [term] again, from the recent ones.
+  void _repeat(String term) {
+    _query.value = TextEditingValue(
+      text: term,
+      selection: TextSelection.collapsed(offset: term.length),
+    );
+    _submit(term);
+  }
+
+  /// Opens a show from the results; the search found it, so it is remembered.
+  void _open(Podcast podcast) {
+    if (_term case final term?) unawaited(rememberSearch(AppScope.of(context).library, term));
+    Navigator.of(context).push(CupertinoPageRoute<void>(builder: (_) => PodcastPage(podcast: podcast)));
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -65,7 +83,7 @@ class _SearchPageState extends State<SearchPage> {
                 controller: _query,
                 placeholder: 'Search podcasts',
                 onChanged: _changed,
-                onSubmitted: _search,
+                onSubmitted: _submit,
                 height: 48,
                 textStyle: textStyle(size: 16),
               ),
@@ -81,14 +99,25 @@ class _SearchPageState extends State<SearchPage> {
   Widget _body() {
     final results = _results;
     if (results == null) {
+      final library = AppScope.of(context).library;
       return SliverToBoxAdapter(
         child: ContentColumn(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              sectionHeading('FEATURED'),
-              _FeaturedCard(podcast: waveform, onTap: () => _open(waveform)),
-            ],
+          child: ListenableBuilder(
+            listenable: library,
+            builder: (context, _) {
+              final recent = recentSearches(library);
+              if (recent.isEmpty) return sectionHint('Search millions of shows from the Apple Podcasts directory.');
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  sectionHeading(
+                    'RECENT SEARCHES',
+                    trailing: textLink('Clear', const Key('clear-searches'), () => clearRecentSearches(library)),
+                  ),
+                  for (final term in recent) _RecentSearch(term: term, onTap: () => _repeat(term)),
+                ],
+              );
+            },
           ),
         ),
       );
@@ -114,48 +143,33 @@ class _SearchPageState extends State<SearchPage> {
   }
 }
 
-class _FeaturedCard extends StatelessWidget {
-  const _FeaturedCard({required this.podcast, required this.onTap});
+/// A recent search term; tap to search it again.
+class _RecentSearch extends StatelessWidget {
+  const _RecentSearch({required this.term, required this.onTap});
 
-  final Podcast podcast;
+  final String term;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) => GestureDetector(
-    key: const Key('featured'),
+    key: ValueKey('recent-$term'),
     onTap: onTap,
     behavior: HitTestBehavior.opaque,
     child: MouseRegion(
       cursor: SystemMouseCursors.click,
-      child: GlassCard(
-        quality: cardGlass,
-        padding: const EdgeInsets.all(14),
-        shape: const LiquidRoundedSuperellipse(borderRadius: 26),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 13),
+        decoration: BoxDecoration(
+          border: Border(bottom: BorderSide(color: inkAt(0.08), width: 0.5)),
+        ),
         child: Row(
           children: [
-            Artwork(url: podcast.artwork, size: 120, radius: 16),
-            const SizedBox(width: 18),
+            Icon(CupertinoIcons.clock, color: inkAt(0.45), size: 18),
+            const SizedBox(width: 14),
             Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    podcast.title,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: textStyle(size: 20, weight: FontWeight.w700, height: 1.2),
-                  ),
-                  const SizedBox(height: 4),
-                  Text([podcast.author, podcast.genre].nonNulls.join(' · '), style: textStyle(size: 13.5, alpha: 0.6)),
-                  const SizedBox(height: 12),
-                  Text(
-                    'Search millions of shows from the Apple Podcasts directory above.',
-                    style: textStyle(size: 13, alpha: 0.45),
-                  ),
-                ],
-              ),
+              child: Text(term, maxLines: 1, overflow: TextOverflow.ellipsis, style: textStyle(size: 16)),
             ),
-            Icon(CupertinoIcons.chevron_right, color: inkAt(0.4), size: 18),
+            Icon(CupertinoIcons.arrow_up_left, color: inkAt(0.35), size: 16),
           ],
         ),
       ),

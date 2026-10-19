@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:ui' as ui;
 
 import 'package:flutter/cupertino.dart';
@@ -23,10 +22,6 @@ const LiquidGlassSettings accentGlass = LiquidGlassSettings(
   lightIntensity: 0.7,
   saturation: 1.4,
 );
-
-/// Glass for cards that scroll: a frosted blur without the refraction shader,
-/// which would otherwise run once per visible card on every scroll frame.
-const GlassQuality cardGlass = GlassQuality.minimal;
 
 Color inkAt(double alpha) => ink.withValues(alpha: alpha);
 
@@ -154,150 +149,40 @@ class Backdrop extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final art = artwork;
-    return RepaintBoundary(
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          const CustomPaint(painter: _AmbientLight()),
-          if (art != null) _Wash(art),
-          // Keep text readable over bright artwork.
-          DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  stage.withValues(alpha: art == null ? 0 : 0.45),
-                  stage.withValues(alpha: art == null ? 0.2 : 0.8),
-                ],
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        const CustomPaint(painter: _AmbientLight()),
+        if (art != null)
+          ImageFiltered(
+            imageFilter: ui.ImageFilter.blur(sigmaX: 70, sigmaY: 70, tileMode: TileMode.mirror),
+            child: Opacity(
+              opacity: 0.75,
+              child: Image.network(
+                art,
+                fit: BoxFit.cover,
+                cacheWidth: 200,
+                errorBuilder: (_, _, _) => const SizedBox(),
               ),
             ),
           ),
-          CustomPaint(painter: _Grain()),
-        ],
-      ),
+        // Keep text readable over bright artwork.
+        DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                stage.withValues(alpha: art == null ? 0 : 0.45),
+                stage.withValues(alpha: art == null ? 0.2 : 0.8),
+              ],
+            ),
+          ),
+        ),
+        CustomPaint(painter: _Grain()),
+      ],
     );
   }
-}
-
-/// Width of an artwork wash in pixels, and its blur in those pixels: scaled
-/// up to fill the screen, about the 70-point blur of the full-size artwork.
-const int _washWidth = 32;
-const double _washBlur = 2.4;
-
-/// The artwork blurred into a small wash, made once per image and scaled up
-/// to fill. Blurring it at screen size instead would cost a screen-sized blur
-/// every time the glass above is drawn.
-class _Wash extends StatefulWidget {
-  const _Wash(this.url);
-
-  final String url;
-
-  @override
-  State<_Wash> createState() => _WashState();
-}
-
-class _WashState extends State<_Wash> {
-  ui.Image? _image;
-
-  /// Bumped by every load, so a slow one never replaces a newer one.
-  int _loads = 0;
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  @override
-  void didUpdateWidget(_Wash oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.url != widget.url) _load();
-  }
-
-  Future<void> _load() async {
-    final load = ++_loads;
-    final image = await _washOf(widget.url);
-    if (!mounted || load != _loads) return image?.dispose();
-    setState(() {
-      _image?.dispose();
-      _image = image;
-    });
-  }
-
-  @override
-  void dispose() {
-    _image?.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) => RawImage(
-    image: _image,
-    fit: BoxFit.cover,
-    filterQuality: FilterQuality.medium,
-    opacity: const AlwaysStoppedAnimation(0.75),
-  );
-}
-
-/// Recent washes by artwork URL, oldest first.
-final Map<String, Future<ui.Image?>> _washes = {};
-const int _keptWashes = 12;
-
-/// A handle on the wash for [url], or null when the artwork cannot load.
-/// The caller disposes it.
-Future<ui.Image?> _washOf(String url) async {
-  final wash = _washes.remove(url) ?? _makeWash(url);
-  _washes[url] = wash;
-  if (_washes.length > _keptWashes) {
-    final oldest = _washes.keys.first;
-    unawaited(_washes.remove(oldest)!.then((image) => image?.dispose()));
-  }
-  final image = await wash;
-  if (image == null && identical(_washes[url], wash)) _washes.remove(url);
-  return image?.clone();
-}
-
-Future<ui.Image?> _makeWash(String url) async {
-  final ui.Image small;
-  try {
-    small = await _decode(ResizeImage(NetworkImage(url), width: _washWidth));
-  } catch (_) {
-    return null;
-  }
-  final recorder = ui.PictureRecorder();
-  Canvas(recorder).drawImage(
-    small,
-    Offset.zero,
-    Paint()..imageFilter = ui.ImageFilter.blur(sigmaX: _washBlur, sigmaY: _washBlur, tileMode: TileMode.mirror),
-  );
-  final picture = recorder.endRecording();
-  try {
-    return await picture.toImage(small.width, small.height);
-  } finally {
-    picture.dispose();
-    small.dispose();
-  }
-}
-
-/// The first frame of [provider].
-Future<ui.Image> _decode(ImageProvider provider) {
-  final done = Completer<ui.Image>();
-  final stream = provider.resolve(ImageConfiguration.empty);
-  late final ImageStreamListener listener;
-  listener = ImageStreamListener(
-    (info, _) {
-      stream.removeListener(listener);
-      done.complete(info.image.clone());
-      info.dispose();
-    },
-    onError: (error, stack) {
-      stream.removeListener(listener);
-      done.completeError(error, stack);
-    },
-  );
-  stream.addListener(listener);
-  return done.future;
 }
 
 class _AmbientLight extends CustomPainter {

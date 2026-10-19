@@ -90,7 +90,6 @@ class _MenuRow extends StatelessWidget {
       child: MouseRegion(
         cursor: SystemMouseCursors.click,
         child: GlassCard(
-          quality: cardGlass,
           padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
           shape: const LiquidRoundedSuperellipse(borderRadius: 20),
           child: Row(

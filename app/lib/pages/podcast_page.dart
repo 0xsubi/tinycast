@@ -302,7 +302,6 @@ class EpisodeCard extends StatelessWidget {
       child: MouseRegion(
         cursor: SystemMouseCursors.click,
         child: GlassCard(
-          quality: cardGlass,
           padding: const EdgeInsets.all(12),
           shape: const LiquidRoundedSuperellipse(borderRadius: 20),
           child: Row(

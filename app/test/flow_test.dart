@@ -8,6 +8,7 @@ import 'package:tinycast/deck/textures.dart';
 import 'package:tinycast/deck/transport.dart';
 import 'package:tinycast/library/downloads.dart';
 import 'package:tinycast/library/library.dart';
+import 'package:tinycast/library/searches.dart';
 import 'package:tinycast/main.dart';
 import 'package:tinycast/pages/episode_page.dart';
 import 'package:tinycast/pages/interests_page.dart';
@@ -308,12 +309,13 @@ void main() {
     expect(chosenInterests(library), isEmpty);
   });
 
-  testWidgets('the featured show opens before any search', (tester) async {
+  testWidgets('search lists recent searches before a search', (tester) async {
     await onboarded();
+    final directory = _FakeDirectory();
     await tester.pumpWidget(
       ReelPlayerApp(
         library: library,
-        directory: _FakeDirectory(),
+        directory: directory,
         playback: Playback(transport: _FakeTransport()),
       ),
     );
@@ -327,10 +329,90 @@ void main() {
     expect((x('Home') + x('Search')) / 2, closeTo(1240 / 2, 1));
 
     await openTab(tester, 'Search');
-    await tester.tap(find.byKey(const Key('featured')));
+    expect(find.text('Search millions of shows from the Apple Podcasts directory.'), findsOneWidget);
+    expect(find.byKey(const Key('featured')), findsNothing);
+
+    Future<void> type(String text) async {
+      await tester.enterText(find.byType(EditableText), text);
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pump();
+    }
+
+    // Typing alone searches but is not remembered…
+    await type('gad');
+    expect(directory.searches, ['gad']);
+    expect(recentSearches(library), isEmpty);
+    // …opening a show the search found is…
+    await type('gadgets');
+    await tester.tap(find.text('Gadget Hour'));
     await tester.pumpAndSettle();
     expect(find.byType(PodcastPage), findsOneWidget);
-    expect(find.text(waveform.title), findsWidgets);
+    await tester.tap(find.byKey(const Key('back')));
+    await tester.pumpAndSettle();
+    // …and so is pressing Return, most recent first.
+    await tester.enterText(find.byType(EditableText), 'Phones');
+    await tester.testTextInput.receiveAction(TextInputAction.search);
+    await tester.pump();
+    expect(recentSearches(library), ['Phones', 'gadgets']);
+
+    await type('');
+    expect(find.text('RECENT SEARCHES'), findsOneWidget);
+    expect(find.byKey(const ValueKey('recent-Phones')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('recent-gadgets')));
+    await tester.pump();
+    expect(directory.searches.last, 'gadgets');
+    expect(tester.widget<EditableText>(find.byType(EditableText)).controller.text, 'gadgets');
+    expect(recentSearches(library), ['gadgets', 'Phones']);
+    await tester.pumpAndSettle();
+    expect(find.text('Gadget Hour'), findsWidgets);
+
+    await type('');
+    await tester.tap(find.byKey(const Key('clear-searches')));
+    await tester.pump();
+    expect(recentSearches(library), isEmpty);
+    expect(find.text('RECENT SEARCHES'), findsNothing);
+  });
+
+  testWidgets('an episode left part-way is on Home, and its pill shows how far', (tester) async {
+    await onboarded();
+    final first = _feed.episodes[0];
+    await library.setProgress(_show, first, 600, length: 3725);
+    await tester.pumpWidget(
+      ReelPlayerApp(
+        library: library,
+        directory: _FakeDirectory(),
+        playback: Playback(transport: _FakeTransport()),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('CONTINUE WHERE YOU LEFT OFF'), findsOneWidget);
+    final card = find.byKey(ValueKey('continue-${first.id}'));
+    expect(find.descendant(of: card, matching: find.text('10 min / 1 hr 2 min')), findsOneWidget);
+    expect(find.descendant(of: card, matching: find.byKey(const Key('heard'))), findsOneWidget);
+
+    await tester.tap(card);
+    await tester.pumpAndSettle();
+    expect(find.byType(EpisodePage), findsOneWidget);
+    final pill = find.byKey(const Key('play-episode'));
+    expect(find.descendant(of: pill, matching: find.text('Resume')), findsOneWidget);
+    final bar = find.descendant(of: pill, matching: find.byKey(const Key('resume-progress')));
+    expect(bar, findsOneWidget);
+    final fill = tester.widget<FractionallySizedBox>(
+      find.descendant(of: bar, matching: find.byType(FractionallySizedBox)),
+    );
+    expect(fill.widthFactor, closeTo(600 / 3725, 1e-9));
+    // The bar runs along the pill's bottom edge.
+    expect(tester.getBottomLeft(bar).dy, closeTo(tester.getBottomLeft(pill).dy, 1));
+
+    // Finished episodes leave the row.
+    await library.setProgress(_show, first, null);
+    await tester.pump();
+    expect(find.descendant(of: pill, matching: find.text('Play')), findsOneWidget);
+    expect(bar, findsNothing);
+    await tester.tap(find.byKey(const Key('back')));
+    await tester.pumpAndSettle();
+    expect(find.text('CONTINUE WHERE YOU LEFT OFF'), findsNothing);
   });
 
   testWidgets('subscribe, sort, favorite and download', (tester) async {
