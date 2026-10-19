@@ -1,0 +1,464 @@
+import 'package:flutter/foundation.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
+import 'package:sqflite/sqflite.dart';
+
+import '../podcast/models.dart';
+
+/// An episode the user has kept: favorited, downloaded or both. Holds a full
+/// copy of the episode so it can be shown and played without its feed.
+class SavedEpisode {
+  const SavedEpisode({
+    required this.podcast,
+    required this.episode,
+    this.favoritedAt,
+    this.downloadPath,
+    this.downloadedAt,
+  });
+
+  final Podcast podcast;
+  final PodcastEpisode episode;
+  final DateTime? favoritedAt;
+  final String? downloadPath;
+  final DateTime? downloadedAt;
+
+  bool get isFavorite => favoritedAt != null;
+  bool get isDownloaded => downloadPath != null;
+
+  SavedEpisode copyWith({
+    Podcast? podcast,
+    PodcastEpisode? episode,
+    ValueGetter<DateTime?>? favoritedAt,
+    ValueGetter<String?>? downloadPath,
+    ValueGetter<DateTime?>? downloadedAt,
+  }) => SavedEpisode(
+    podcast: podcast ?? this.podcast,
+    episode: episode ?? this.episode,
+    favoritedAt: favoritedAt != null ? favoritedAt() : this.favoritedAt,
+    downloadPath: downloadPath != null ? downloadPath() : this.downloadPath,
+    downloadedAt: downloadedAt != null ? downloadedAt() : this.downloadedAt,
+  );
+}
+
+/// An episode the user left part-way.
+class Listening {
+  const Listening({
+    required this.podcast,
+    required this.episode,
+    required this.position,
+    required this.updatedAt,
+    this.length,
+  });
+
+  final Podcast podcast;
+  final PodcastEpisode episode;
+
+  /// Where the user left off, in seconds.
+  final double position;
+
+  /// How long the episode turned out to be when played, in seconds; the
+  /// feed's own figure is not always right.
+  final double? length;
+
+  final DateTime updatedAt;
+
+  /// The episode's running time, as best known.
+  double? get total => length ?? episode.duration;
+
+  /// How much of the episode has been heard, 0–1, if its length is known.
+  double? get fraction {
+    final t = total;
+    return t == null || t <= 0 ? null : (position / t).clamp(0.0, 1.0);
+  }
+}
+
+/// The user's library — subscriptions, favorites, downloads, listening
+/// progress and settings — kept in SQLite and mirrored in memory so pages can
+/// read it synchronously.
+class Library extends ChangeNotifier {
+  Library._(this._db, this._subscriptions, this._episodes, this._progress, this._settings);
+
+  final Database _db;
+  final List<_Subscription> _subscriptions;
+  final Map<String, SavedEpisode> _episodes;
+  final Map<String, _Progress> _progress;
+  final Map<String, String> _settings;
+
+  static const int _version = 3;
+
+  /// Opens (creating if needed) the library database. Tests pass an FFI
+  /// [factory] and [inMemoryDatabasePath].
+  static Future<Library> open({DatabaseFactory? factory, String? path}) async {
+    final dbFactory = factory ?? databaseFactory;
+    final dbPath = path ?? p.join((await getApplicationSupportDirectory()).path, 'tinycast.db');
+    final db = await dbFactory.openDatabase(
+      dbPath,
+      options: OpenDatabaseOptions(version: _version, onCreate: _create, onUpgrade: _upgrade),
+    );
+    final subscriptions = [
+      for (final row in await db.query('subscriptions', orderBy: 'subscribed_at DESC'))
+        _Subscription(_podcastFromRow(row, ''), DateTime.fromMillisecondsSinceEpoch(row['subscribed_at']! as int)),
+    ];
+    final episodes = {
+      for (final row in await db.query('episodes'))
+        _key(row['feed']! as String, row['id']! as String): _savedFromRow(row),
+    };
+    final progress = {
+      for (final row in await db.query('progress'))
+        _key(row['feed']! as String, row['id']! as String): _progressFromRow(row),
+    };
+    final settings = {for (final row in await db.query('settings')) row['key']! as String: row['value']! as String};
+    return Library._(db, subscriptions, episodes, progress, settings);
+  }
+
+  static Future<void> _create(Database db, int version) async {
+    final batch = db.batch()
+      ..execute('''
+        CREATE TABLE subscriptions (
+          feed TEXT PRIMARY KEY,
+          title TEXT NOT NULL,
+          author TEXT,
+          artwork TEXT,
+          genre TEXT,
+          subscribed_at INTEGER NOT NULL
+        )''')
+      ..execute('''
+        CREATE TABLE episodes (
+          feed TEXT NOT NULL,
+          id TEXT NOT NULL,
+          podcast_title TEXT NOT NULL,
+          podcast_author TEXT,
+          podcast_artwork TEXT,
+          podcast_genre TEXT,
+          title TEXT NOT NULL,
+          audio TEXT NOT NULL,
+          description TEXT,
+          published INTEGER,
+          duration REAL,
+          number INTEGER,
+          season INTEGER,
+          type TEXT,
+          explicit INTEGER,
+          artwork TEXT,
+          mime_type TEXT,
+          bytes INTEGER,
+          link TEXT,
+          favorited_at INTEGER,
+          download_path TEXT,
+          downloaded_at INTEGER,
+          PRIMARY KEY (feed, id)
+        )''')
+      ..execute('CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
+    _createProgress(batch);
+    await batch.commit(noResult: true);
+  }
+
+  static Future<void> _upgrade(Database db, int from, int to) async {
+    final batch = db.batch();
+    if (from < 2) {
+      _createProgress(batch);
+    } else if (from < 3) {
+      // Progress gained a copy of its episode, for Continue Listening.
+      for (final column in _snapshotColumns) {
+        batch.execute('ALTER TABLE progress ADD COLUMN $column');
+      }
+    }
+    await batch.commit(noResult: true);
+  }
+
+  static void _createProgress(Batch batch) => batch.execute('''
+    CREATE TABLE progress (
+      feed TEXT NOT NULL,
+      id TEXT NOT NULL,
+      position REAL NOT NULL,
+      updated_at INTEGER NOT NULL,
+      ${_snapshotColumns.join(',\n      ')},
+      PRIMARY KEY (feed, id)
+    )''');
+
+  /// What a progress row keeps of its episode, so it can be listed without
+  /// the feed. Rows from before version 3 have none of it.
+  static const List<String> _snapshotColumns = [
+    'length REAL',
+    'podcast_title TEXT',
+    'podcast_author TEXT',
+    'podcast_artwork TEXT',
+    'podcast_genre TEXT',
+    'title TEXT',
+    'audio TEXT',
+    'description TEXT',
+    'published INTEGER',
+    'duration REAL',
+    'number INTEGER',
+    'season INTEGER',
+    'type TEXT',
+    'explicit INTEGER',
+    'artwork TEXT',
+    'mime_type TEXT',
+    'bytes INTEGER',
+    'link TEXT',
+  ];
+
+  Future<void> close() => _db.close();
+
+  /* --------------------------------------------------------- subscriptions -- */
+
+  /// Most recently subscribed first.
+  List<Podcast> get subscriptions => [for (final s in _subscriptions) s.podcast];
+
+  bool isSubscribed(Podcast podcast) => _subscriptions.any((s) => s.podcast.feed == podcast.feed);
+
+  Future<void> subscribe(Podcast podcast) async {
+    if (isSubscribed(podcast)) return;
+    final now = DateTime.now();
+    _subscriptions.insert(0, _Subscription(podcast, now));
+    notifyListeners();
+    await _db.insert('subscriptions', {
+      'feed': podcast.feed.toString(),
+      'title': podcast.title,
+      'author': podcast.author,
+      'artwork': podcast.artwork,
+      'genre': podcast.genre,
+      'subscribed_at': now.millisecondsSinceEpoch,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<void> unsubscribe(Podcast podcast) async {
+    _subscriptions.removeWhere((s) => s.podcast.feed == podcast.feed);
+    notifyListeners();
+    await _db.delete('subscriptions', where: 'feed = ?', whereArgs: [podcast.feed.toString()]);
+  }
+
+  /* ------------------------------------------------------------- episodes -- */
+
+  SavedEpisode? saved(Podcast podcast, PodcastEpisode episode) => _episodes[_key(podcast.feed.toString(), episode.id)];
+
+  /// Favorites, most recently added first.
+  List<SavedEpisode> get favorites =>
+      _episodes.values.where((e) => e.isFavorite).toList()..sort((a, b) => b.favoritedAt!.compareTo(a.favoritedAt!));
+
+  /// Downloads, most recently downloaded first.
+  List<SavedEpisode> get downloaded =>
+      _episodes.values.where((e) => e.isDownloaded).toList()
+        ..sort((a, b) => (b.downloadedAt ?? DateTime(0)).compareTo(a.downloadedAt ?? DateTime(0)));
+
+  bool isFavorite(Podcast podcast, PodcastEpisode episode) => saved(podcast, episode)?.isFavorite ?? false;
+
+  Future<void> favorite(Podcast podcast, PodcastEpisode episode) =>
+      _update(podcast, episode, (s) => s.copyWith(favoritedAt: () => s.favoritedAt ?? DateTime.now()));
+
+  Future<void> unfavorite(Podcast podcast, PodcastEpisode episode) =>
+      _update(podcast, episode, (s) => s.copyWith(favoritedAt: () => null));
+
+  /// Where [episode] was downloaded to, if it was.
+  String? downloadPath(Podcast podcast, PodcastEpisode episode) => saved(podcast, episode)?.downloadPath;
+
+  Future<void> recordDownload(Podcast podcast, PodcastEpisode episode, String path) =>
+      _update(podcast, episode, (s) => s.copyWith(downloadPath: () => path, downloadedAt: () => DateTime.now()));
+
+  Future<void> forgetDownload(Podcast podcast, PodcastEpisode episode) =>
+      _update(podcast, episode, (s) => s.copyWith(downloadPath: () => null, downloadedAt: () => null));
+
+  /// Applies [change] to the saved copy of [episode] (refreshing its details),
+  /// dropping the row once it is neither a favorite nor a download.
+  Future<void> _update(Podcast podcast, PodcastEpisode episode, SavedEpisode Function(SavedEpisode) change) async {
+    final feed = podcast.feed.toString();
+    final key = _key(feed, episode.id);
+    final current = _episodes[key] ?? SavedEpisode(podcast: podcast, episode: episode);
+    final next = change(current.copyWith(podcast: podcast, episode: episode));
+    if (!next.isFavorite && !next.isDownloaded) {
+      if (_episodes.remove(key) == null) return;
+      notifyListeners();
+      await _db.delete('episodes', where: 'feed = ? AND id = ?', whereArgs: [feed, episode.id]);
+      return;
+    }
+    _episodes[key] = next;
+    notifyListeners();
+    await _db.insert('episodes', _savedToRow(next), conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  /* ------------------------------------------------------------- progress -- */
+
+  /// How far into [episode] the user got, in seconds, if they left it part-way.
+  double? progress(Podcast podcast, PodcastEpisode episode) =>
+      _progress[_key(podcast.feed.toString(), episode.id)]?.position;
+
+  /// Where the user left [episode], if they left it part-way.
+  Listening? listeningTo(Podcast podcast, PodcastEpisode episode) {
+    final p = _progress[_key(podcast.feed.toString(), episode.id)];
+    return p == null
+        ? null
+        : Listening(podcast: podcast, episode: episode, position: p.position, length: p.length, updatedAt: p.updatedAt);
+  }
+
+  /// Episodes left part-way, most recently played first.
+  List<Listening> get listening => [
+    for (final p in _progress.values)
+      if (p.snapshot case (final podcast, final episode))
+        Listening(podcast: podcast, episode: episode, position: p.position, length: p.length, updatedAt: p.updatedAt),
+  ]..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+
+  /// Notified whenever listening progress changes. Kept apart from the
+  /// library's own notifications, since it fires every few seconds while a
+  /// tape plays.
+  Listenable get progressChanges => _progressChanges;
+  final _Changes _progressChanges = _Changes();
+
+  /// Records how far into [episode] the user got, and its [length] if known;
+  /// null forgets it.
+  Future<void> setProgress(Podcast podcast, PodcastEpisode episode, double? position, {double? length}) async {
+    final feed = podcast.feed.toString();
+    final key = _key(feed, episode.id);
+    if (position == null) {
+      if (_progress.remove(key) == null) return;
+      _progressChanges.fire();
+      await _db.delete('progress', where: 'feed = ? AND id = ?', whereArgs: [feed, episode.id]);
+      return;
+    }
+    final current = _progress[key];
+    length ??= current?.length;
+    if (current != null && current.position == position && current.length == length && current.snapshot != null) {
+      return;
+    }
+    final now = DateTime.now();
+    _progress[key] = _Progress(position, length, now, (podcast, episode));
+    _progressChanges.fire();
+    await _db.insert('progress', {
+      ..._episodeToRow(podcast, episode),
+      'position': position,
+      'length': length,
+      'updated_at': now.millisecondsSinceEpoch,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  /* ------------------------------------------------------------- settings -- */
+
+  String? setting(String key) => _settings[key];
+
+  /// Stores [value] under [key]; null removes it.
+  Future<void> setSetting(String key, String? value) async {
+    if (value == null) {
+      _settings.remove(key);
+      notifyListeners();
+      await _db.delete('settings', where: 'key = ?', whereArgs: [key]);
+    } else {
+      _settings[key] = value;
+      notifyListeners();
+      await _db.insert('settings', {'key': key, 'value': value}, conflictAlgorithm: ConflictAlgorithm.replace);
+    }
+  }
+}
+
+class _Progress {
+  const _Progress(this.position, this.length, this.updatedAt, this.snapshot);
+  final double position;
+  final double? length;
+  final DateTime updatedAt;
+
+  /// The episode as last played; null for rows saved before it was kept.
+  final (Podcast, PodcastEpisode)? snapshot;
+}
+
+_Progress _progressFromRow(Map<String, Object?> row) => _Progress(
+  (row['position']! as num).toDouble(),
+  (row['length'] as num?)?.toDouble(),
+  _time(row['updated_at'])!,
+  row['title'] == null ? null : _episodeFromRow(row),
+);
+
+class _Changes extends ChangeNotifier {
+  void fire() => notifyListeners();
+}
+
+class _Subscription {
+  const _Subscription(this.podcast, this.subscribedAt);
+  final Podcast podcast;
+  final DateTime subscribedAt;
+}
+
+String _key(String feed, String id) => '$feed\n$id';
+
+DateTime? _time(Object? millis) => millis == null ? null : DateTime.fromMillisecondsSinceEpoch(millis as int);
+
+/// Reads a podcast from a row; [prefix] is '' for subscriptions, 'podcast_' for episodes.
+Podcast _podcastFromRow(Map<String, Object?> row, String prefix) => Podcast(
+  title: row['${prefix}title']! as String,
+  feed: Uri.parse(row['feed']! as String),
+  author: row['${prefix}author'] as String?,
+  artwork: row['${prefix}artwork'] as String?,
+  genre: row['${prefix}genre'] as String?,
+);
+
+SavedEpisode _savedFromRow(Map<String, Object?> row) {
+  final (podcast, episode) = _episodeFromRow(row);
+  return SavedEpisode(
+    podcast: podcast,
+    episode: episode,
+    favoritedAt: _time(row['favorited_at']),
+    downloadPath: row['download_path'] as String?,
+    downloadedAt: _time(row['downloaded_at']),
+  );
+}
+
+/// An episode and its show, from a row of `episodes` or `progress`.
+(Podcast, PodcastEpisode) _episodeFromRow(Map<String, Object?> row) => (
+  _podcastFromRow(row, 'podcast_'),
+  PodcastEpisode(
+    id: row['id']! as String,
+    title: row['title']! as String,
+    audio: Uri.parse(row['audio']! as String),
+    description: row['description'] as String?,
+    published: _time(row['published'])?.toUtc(),
+    duration: (row['duration'] as num?)?.toDouble(),
+    number: row['number'] as int?,
+    season: row['season'] as int?,
+    type: row['type'] as String?,
+    explicit: switch (row['explicit']) {
+      null => null,
+      final v => v == 1,
+    },
+    artwork: row['artwork'] as String?,
+    mimeType: row['mime_type'] as String?,
+    bytes: row['bytes'] as int?,
+    link: switch (row['link']) {
+      final String l => Uri.tryParse(l),
+      _ => null,
+    },
+  ),
+);
+
+Map<String, Object?> _savedToRow(SavedEpisode s) => {
+  ..._episodeToRow(s.podcast, s.episode),
+  'favorited_at': s.favoritedAt?.millisecondsSinceEpoch,
+  'download_path': s.downloadPath,
+  'downloaded_at': s.downloadedAt?.millisecondsSinceEpoch,
+};
+
+/// The columns `episodes` and `progress` share.
+Map<String, Object?> _episodeToRow(Podcast podcast, PodcastEpisode e) {
+  return {
+    'feed': podcast.feed.toString(),
+    'id': e.id,
+    'podcast_title': podcast.title,
+    'podcast_author': podcast.author,
+    'podcast_artwork': podcast.artwork,
+    'podcast_genre': podcast.genre,
+    'title': e.title,
+    'audio': e.audio.toString(),
+    'description': e.description,
+    'published': e.published?.millisecondsSinceEpoch,
+    'duration': e.duration,
+    'number': e.number,
+    'season': e.season,
+    'type': e.type,
+    'explicit': switch (e.explicit) {
+      null => null,
+      true => 1,
+      false => 0,
+    },
+    'artwork': e.artwork,
+    'mime_type': e.mimeType,
+    'bytes': e.bytes,
+    'link': e.link?.toString(),
+  };
+}
