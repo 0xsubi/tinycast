@@ -5,7 +5,6 @@ import 'package:desktop_drop/desktop_drop.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
-import 'package:just_audio/just_audio.dart';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
 import '../deck/label_layer.dart';
@@ -52,7 +51,7 @@ class _PlayerPageState extends State<PlayerPage> {
     final file = await FilePicker.pickFile(type: FileType.audio);
     if (file == null || !mounted) return;
     final path = file.path;
-    await _playback.playFile(path != null ? AudioSource.file(path) : AudioSource.uri(file.uri), file.name);
+    await _playback.playFile(path != null ? Uri.file(path) : file.uri, file.name);
   }
 
   Future<void> _dropFiles(List<DropItem> files) async {
@@ -67,7 +66,7 @@ class _PlayerPageState extends State<PlayerPage> {
       release = () => unawaited(DesktopDrop.instance.stopAccessingSecurityScopedResource(bookmark: bookmark));
     }
     if (!mounted) return release?.call();
-    await _playback.playFile(AudioSource.file(file.path), file.name, release: release);
+    await _playback.playFile(Uri.file(file.path), file.name, release: release);
   }
 
   static bool _isAudio(DropItem f) {

@@ -23,8 +23,16 @@ class Transport extends ChangeNotifier {
   /// winding. The deck calls [wound] once its reels have caught up.
   int winding = 0;
 
-  AudioPlayer? _player;
+  /// Created on the first [load] and kept for the transport's life: background
+  /// playback on Android supports only one player instance.
+  AudioPlayer? _audio;
   StreamSubscription<PlayerState>? _stateSub;
+
+  /// [_audio] while it has a source threaded.
+  AudioPlayer? _player;
+
+  /// Bumped by every [load], so an interrupted load never touches a newer one.
+  int _loads = 0;
   double _simTime;
   double _simAnchor = 0;
   final Stopwatch _clock = Stopwatch()..start();
@@ -115,14 +123,41 @@ class Transport extends ChangeNotifier {
   /// with its duration in seconds. With [autoplay], playback starts as soon as
   /// enough has buffered.
   Future<double> load(AudioSource source, {bool autoplay = false, double startAt = 0}) async {
-    await _unload();
-    final player = AudioPlayer();
+    final load = ++_loads;
+    final player = _audio ??= _open();
     _player = player;
     playing = false;
+    buffering = false;
     notifyListeners();
 
+    try {
+      if (!autoplay) unawaited(player.pause());
+      final loading = player.setAudioSource(
+        source,
+        initialPosition: startAt > 0 ? Duration(microseconds: (startAt * 1e6).round()) : null,
+      );
+      if (autoplay) unawaited(player.play().catchError((_) {}));
+      final d = await loading;
+      if (load != _loads) return duration;
+      duration = d == null ? 0 : d.inMicroseconds / 1e6;
+      notifyListeners();
+      return duration;
+    } catch (_) {
+      if (load == _loads) {
+        _player = null;
+        playing = false;
+        buffering = false;
+        unawaited(player.stop());
+        notifyListeners();
+      }
+      throw const LoadError('Could not load that audio file');
+    }
+  }
+
+  AudioPlayer _open() {
+    final player = AudioPlayer();
     _stateSub = player.playerStateStream.listen((s) {
-      if (_player != player) return;
+      if (_player == null) return;
       final ended = s.processingState == ProcessingState.completed;
       // just_audio stays "playing" at the end of a track; park it instead.
       if (ended && s.playing) unawaited(player.pause());
@@ -134,38 +169,15 @@ class Transport extends ChangeNotifier {
         notifyListeners();
       }
     });
-
-    try {
-      final loading = player.setAudioSource(
-        source,
-        initialPosition: startAt > 0 ? Duration(microseconds: (startAt * 1e6).round()) : null,
-      );
-      if (autoplay) unawaited(player.play().catchError((_) {}));
-      final d = await loading;
-      if (_player != player) return duration;
-      duration = d == null ? 0 : d.inMicroseconds / 1e6;
-      notifyListeners();
-      return duration;
-    } catch (_) {
-      if (_player == player) await _unload();
-      throw const LoadError('Could not load that audio file');
-    }
-  }
-
-  Future<void> _unload() async {
-    final old = _player;
-    if (old == null) return;
-    _player = null;
-    await _stateSub?.cancel();
-    _stateSub = null;
-    playing = false;
-    buffering = false;
-    await old.dispose();
+    return player;
   }
 
   @override
   void dispose() {
-    unawaited(_unload());
+    _player = null;
+    unawaited(_stateSub?.cancel());
+    unawaited(_audio?.dispose());
+    _audio = null;
     super.dispose();
   }
 }

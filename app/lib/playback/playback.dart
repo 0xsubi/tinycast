@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/widgets.dart';
 import 'package:just_audio/just_audio.dart';
+import 'package:just_audio_background/just_audio_background.dart';
 
 import '../deck/label_layer.dart';
 import '../deck/transport.dart';
@@ -83,27 +84,36 @@ class Playback extends ChangeNotifier {
     // Show the feed's running time while the stream buffers.
     transport.cue(episode.duration ?? 0, at: resume);
     notifyListeners();
+    final artwork = episode.artwork ?? podcast.artwork;
     _threaded = await _thread(
       load,
-      file != null ? AudioSource.file(file) : AudioSource.uri(episode.audio),
+      AudioSource.uri(
+        file != null ? Uri.file(file) : episode.audio,
+        tag: MediaItem(
+          id: episode.id,
+          title: episode.title,
+          album: podcast.title,
+          artUri: artwork == null ? null : Uri.tryParse(artwork),
+        ),
+      ),
       file != null ? 'Could not play the downloaded file' : 'Could not stream this episode',
       startAt: resume,
     );
   }
 
-  /// Thread a local audio file and start playing. [release] is called once
-  /// the file is no longer needed.
-  Future<void> playFile(AudioSource source, String name, {VoidCallback? release}) async {
+  /// Thread the local audio file at [uri] and start playing. [release] is
+  /// called once the file is no longer needed.
+  Future<void> playFile(Uri uri, String name, {VoidCallback? release}) async {
     final load = ++_loads;
     _saveProgress();
     _threaded = false;
     _swapRelease(release);
     error = null;
     notifyListeners();
+    final title = name.replaceFirst(RegExp(r'\.[^.]+$'), '');
+    final source = AudioSource.uri(uri, tag: MediaItem(id: uri.toString(), title: title, album: 'Local File'));
     if (await _thread(load, source, null)) {
-      current = NowPlaying(
-        label: Episode(show: 'Local File', tag: 'EP. 001', title: name.replaceFirst(RegExp(r'\.[^.]+$'), '')),
-      );
+      current = NowPlaying(label: Episode(show: 'Local File', tag: 'EP. 001', title: title));
       notifyListeners();
     }
   }

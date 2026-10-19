@@ -13,6 +13,7 @@ dependencies:
   flutter:
     sdk: flutter
   just_audio: ^0.10.6
+  just_audio_background: ^0.0.1-beta.17
   liquid_glass_widgets: ^1.13.0
   path: ^1.9.1
   path_provider: ^2.1.6

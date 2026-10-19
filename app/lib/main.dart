@@ -1,4 +1,7 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:just_audio_background/just_audio_background.dart';
 import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
 import 'deck/paint_kit.dart';
@@ -13,6 +16,15 @@ import 'ui/style.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Play from a media foreground service, so Android doesn't freeze or kill
+  // the app once the screen has been off for a while.
+  if (Platform.isAndroid) {
+    await JustAudioBackground.init(
+      androidNotificationChannelId: 'dev.tinycast.tinycast.playback',
+      androidNotificationChannelName: 'Playback',
+      androidNotificationOngoing: true,
+    );
+  }
   final (library, _, _) = await (
     Library.open(),
     Textures.load(),
