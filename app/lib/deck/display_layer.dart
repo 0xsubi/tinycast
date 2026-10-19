@@ -19,7 +19,7 @@ bool hitLoad(Offset p) => (p - _loadCentre).distance <= _loadR + 6;
 
 /// The band's live parts: the display and the status lamp.
 class DisplayPainter extends DeckPainter {
-  DisplayPainter(super.placement, this.frame, this.episode) : super(repaint: frame);
+  DisplayPainter(super.placement, this.frame, this.episode) : super(repaint: frame.display);
 
   final DeckFrame frame;
   final Episode episode;
@@ -95,7 +95,7 @@ class DisplayPainter extends DeckPainter {
 
 /// The label strip's metal: the seam along its top and the load button.
 class StripPainter extends DeckPainter {
-  StripPainter(super.placement, this.frame) : super(repaint: frame);
+  StripPainter(super.placement, this.frame) : super(repaint: frame.strip);
 
   final DeckFrame frame;
 

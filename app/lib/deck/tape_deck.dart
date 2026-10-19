@@ -30,6 +30,13 @@ const double _hintEase = 0.045; // opacity 150ms
 const double _lampEase = 0.06;
 const double _buttonEase = 0.025;
 
+/// Eased values this close to their target are taken to have arrived.
+const double _settle = 1e-3;
+
+/// How long the deck keeps animating after anything wakes it, in seconds:
+/// long enough for the player to report where a seek landed.
+const double _linger = 0.5;
+
 /// The upright mechanism is framed from the far edge of the reels' grooves
 /// to the seam, so whole reels show beside the heads.
 const double _reelEdge = -26 - reelR - 22;
@@ -125,6 +132,12 @@ class _TapeDeckState extends State<TapeDeck> with SingleTickerProviderStateMixin
   late double _display;
   double _motor = 0;
 
+  /// The deck animates until at least this [DeckFrame.clock] time.
+  double _awakeUntil = 0;
+
+  /// The episode's title is too long for the label and scrolls.
+  late bool _scrolls;
+
   final Set<int> _labelPointers = {};
   final Set<int> _loadPointers = {};
   bool _labelHover = false;
@@ -139,38 +152,75 @@ class _TapeDeckState extends State<TapeDeck> with SingleTickerProviderStateMixin
     final t = _transport;
     _display = t.time;
     _frame = DeckFrame(clamp01(t.time / math.max(1, t.duration)))..lamp = t.playing ? 1 : 0;
-    _ticker = createTicker(_onTick)..start();
+    _scrolls = titleScrolls(widget.episode.title);
+    _ticker = createTicker(_onTick);
+    _listen(t);
+    _wake();
   }
 
   @override
   void didUpdateWidget(TapeDeck oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.episode.title != widget.episode.title) _frame.titleSince = _frame.clock;
+    if (oldWidget.transport != widget.transport) {
+      _unlisten(oldWidget.transport);
+      _listen(widget.transport);
+    }
+    if (oldWidget.episode.title != widget.episode.title) {
+      _frame.titleSince = _frame.clock;
+      _scrolls = titleScrolls(widget.episode.title);
+    }
+    _wake();
   }
 
   @override
   void dispose() {
+    _unlisten(_transport);
     _ticker.dispose();
     _frame.dispose();
     super.dispose();
   }
 
+  void _listen(Transport t) {
+    t.addListener(_wake);
+    t.jumps.addListener(_wake);
+  }
+
+  void _unlisten(Transport t) {
+    t.removeListener(_wake);
+    t.jumps.removeListener(_wake);
+  }
+
+  /// Something may move: animate until the deck comes to rest again.
+  void _wake() {
+    _awakeUntil = _frame.clock + _linger;
+    if (!_ticker.isActive) _ticker.start();
+  }
+
   /// Per-frame animation. Tape moves at constant linear speed, so each reel's
   /// angular speed is v / r — the nearly-empty reel spins visibly faster.
+  /// Repaints only the layers whose parts moved, and stops once the deck is
+  /// at rest; [_wake] starts it again.
   void _onTick(Duration elapsed) {
     final t = _transport;
     final f = _frame;
     final gap = _last == null ? 0.0 : (elapsed - _last!).inMicroseconds / 1e6;
     final dt = gap.clamp(0.0, 0.05);
     _last = elapsed;
-    f.clock = elapsed.inMicroseconds / 1e6;
+    f.clock += gap;
     t.tick();
 
+    double ease(double tau) => 1 - math.exp(-dt / tau);
+    double approach(double value, double target, double k) {
+      final next = value + (target - value) * k;
+      return (target - next).abs() < _settle ? target : next;
+    }
+
+    final running = t.playing && !t.buffering ? 1.0 : 0.0;
     final dur = math.max(1.0, t.duration);
     final actual = math.min(t.time, dur);
     // After a long stall (app in background) just catch up instead of fast-winding.
     if (gap > 0.25) _display = actual;
-    _motor += ((t.playing && !t.buffering ? 1 : 0) - _motor) * (1 - math.exp(-dt * _motorRate));
+    _motor = approach(_motor, running, 1 - math.exp(-dt * _motorRate));
 
     // Tape travel this frame, in view-box units (positive = forward).
     double travel;
@@ -185,6 +235,7 @@ class _TapeDeckState extends State<TapeDeck> with SingleTickerProviderStateMixin
     }
     if (t.winding != 0 && diff.abs() <= _snap) t.wound();
 
+    final reels = (f.angle[Side.l], f.angle[Side.r], f.radius[Side.l], f.radius[Side.r]);
     final p = clamp01(_display / dur);
     f.radius[Side.l] = packRadius(1 - p);
     f.radius[Side.r] = packRadius(p);
@@ -194,13 +245,21 @@ class _TapeDeckState extends State<TapeDeck> with SingleTickerProviderStateMixin
       // Both reels turn counter-clockwise when the tape runs forward.
       f.angle[side] = (f.angle[side]! - travel / f.radius[side]!) % (math.pi * 2);
     }
+    if (reels != (f.angle[Side.l], f.angle[Side.r], f.radius[Side.l], f.radius[Side.r])) f.spin.fire();
 
-    double ease(double tau) => 1 - math.exp(-dt / tau);
-    f.labelHint += ((_labelHover ? 1 : 0.55) - f.labelHint) * ease(_hintEase);
-    f.lamp += ((t.playing && !t.buffering ? 1 : 0) - f.lamp) * ease(_lampEase);
-    f.loadTravel += ((_loadPointers.isNotEmpty ? 1 : 0) - f.loadTravel) * ease(_buttonEase);
+    final hint = f.labelHint;
+    final hintTarget = _labelHover ? 1.0 : 0.55;
+    f.labelHint = approach(f.labelHint, hintTarget, ease(_hintEase));
+    if (f.labelHint != hint) f.hint.fire();
+
+    final load = f.loadTravel;
+    final loadTarget = _loadPointers.isNotEmpty ? 1.0 : 0.0;
+    f.loadTravel = approach(f.loadTravel, loadTarget, ease(_buttonEase));
+    if (f.loadTravel != load) f.strip.fire();
 
     // The display: the state of the tape and the elapsed time.
+    final display = (f.headline, f.readout, f.lamp);
+    f.lamp = approach(f.lamp, running, ease(_lampEase));
     f.headline = switch (t) {
       _ when widget.failed => 'ERROR',
       _ when t.buffering => 'LOAD',
@@ -209,7 +268,24 @@ class _TapeDeckState extends State<TapeDeck> with SingleTickerProviderStateMixin
       _ => 'PAUSE',
     };
     f.readout = displayTime(actual);
-    f.changed();
+    if (display != (f.headline, f.readout, f.lamp)) f.display.fire();
+
+    if (_scrolls) f.title.fire();
+
+    final resting =
+        !t.playing &&
+        t.winding == 0 &&
+        _display == actual &&
+        _motor == running &&
+        f.lamp == running &&
+        f.labelHint == hintTarget &&
+        f.loadTravel == loadTarget &&
+        !_scrolls &&
+        f.clock >= _awakeUntil;
+    if (resting) {
+      _ticker.stop();
+      _last = null;
+    }
   }
 
   /* ---------------------------------------------------------------- input -- */
@@ -222,18 +298,21 @@ class _TapeDeckState extends State<TapeDeck> with SingleTickerProviderStateMixin
   void _onDown(PointerDownEvent e) {
     if (_onLabel(e.localPosition)) _labelPointers.add(e.pointer);
     if (_onLoad(e.localPosition)) _loadPointers.add(e.pointer);
+    _wake();
   }
 
   void _onUp(PointerUpEvent e) {
     // A click: pressed and released on the label or the load button.
     final label = _labelPointers.remove(e.pointer) && _onLabel(e.localPosition);
     final load = _loadPointers.remove(e.pointer) && _onLoad(e.localPosition);
+    _wake();
     if (label || load) widget.onPickFile();
   }
 
   void _onCancel(PointerCancelEvent e) {
     _labelPointers.remove(e.pointer);
     _loadPointers.remove(e.pointer);
+    _wake();
   }
 
   void _onHover(PointerHoverEvent e) {
@@ -244,12 +323,14 @@ class _TapeDeckState extends State<TapeDeck> with SingleTickerProviderStateMixin
         _labelHover = label;
         _loadHover = load;
       });
+      _wake();
     }
   }
 
   void _onExit(PointerExitEvent e) {
     if (_labelHover || _loadHover) {
       setState(() => _labelHover = _loadHover = false);
+      _wake();
     }
   }
 

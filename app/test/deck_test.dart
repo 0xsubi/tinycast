@@ -314,6 +314,44 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('a still deck stops asking for frames until the tape moves', (tester) async {
+    final transport = Transport(600, startAt: 100);
+    await _pumpDeck(tester, transport);
+    await tester.pump(const Duration(seconds: 1));
+    expect(tester.binding.hasScheduledFrame, isFalse);
+
+    // A seek winds the reels to the new spot, then the deck rests again.
+    transport.seek(300);
+    expect(tester.binding.hasScheduledFrame, isTrue);
+    for (var i = 0; i < 200; i++) {
+      await tester.pump(const Duration(milliseconds: 20));
+    }
+    expect(tester.binding.hasScheduledFrame, isFalse);
+
+    transport.play();
+    await tester.pump(const Duration(seconds: 1));
+    expect(tester.binding.hasScheduledFrame, isTrue);
+    transport.pause();
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump(const Duration(seconds: 1));
+    expect(tester.binding.hasScheduledFrame, isFalse);
+  });
+
+  testWidgets('paused controls stop asking for frames', (tester) async {
+    final transport = Transport(600, startAt: 100);
+    await _pumpControls(tester, transport);
+    await tester.pump(const Duration(seconds: 1));
+    expect(tester.binding.hasScheduledFrame, isFalse);
+
+    await tester.tap(find.byKey(const Key('play')));
+    await tester.pump(const Duration(seconds: 1));
+    expect(tester.binding.hasScheduledFrame, isTrue);
+    await tester.tap(find.byKey(const Key('pause')));
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pump(const Duration(seconds: 1));
+    expect(tester.binding.hasScheduledFrame, isFalse);
+  });
+
   test('a title too long for the label scrolls through it and starts over', () {
     // Fits: never moves.
     expect(marqueeOffset(500, 652, 0), 0);

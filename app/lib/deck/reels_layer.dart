@@ -43,7 +43,7 @@ final Stops _spindle = [(0, rgb(0xbdbdbd)), (0.5, rgb(0x6e6e6e)), (1, rgb(0x2e2e
 
 /// Moving reels: tape packs, the threaded tape and the spinning flanges.
 class ReelsPainter extends DeckPainter {
-  ReelsPainter(super.placement, this.frame) : super(repaint: frame);
+  ReelsPainter(super.placement, this.frame) : super(repaint: frame.spin);
 
   final DeckFrame frame;
 

@@ -128,6 +128,7 @@ class _FeaturedCard extends StatelessWidget {
     child: MouseRegion(
       cursor: SystemMouseCursors.click,
       child: GlassCard(
+        quality: cardGlass,
         padding: const EdgeInsets.all(14),
         shape: const LiquidRoundedSuperellipse(borderRadius: 26),
         child: Row(

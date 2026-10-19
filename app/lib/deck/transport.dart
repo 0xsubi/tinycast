@@ -4,6 +4,8 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
 
+import 'frame.dart';
+
 /// Playback clock for the deck. Drives a real audio player once a file is
 /// loaded; until then it runs a silent simulated clock so the deck still plays.
 /// Time is read every animation frame, so it is exposed as a getter rather
@@ -13,6 +15,11 @@ class Transport extends ChangeNotifier {
   Transport(this.duration, {double startAt = 0}) : _simTime = startAt;
 
   bool playing = false;
+
+  /// Fires when the tape is moved to a new position. Listeners to the
+  /// transport itself are not told: a drag along the seek slot seeks every
+  /// frame.
+  final Signal jumps = Signal();
 
   /// A stream is loading or refilling its buffer: playback is wanted but the
   /// tape is not moving yet.
@@ -93,6 +100,7 @@ class Transport extends ChangeNotifier {
       _simTime = c;
       _simAnchor = _now;
     }
+    jumps.fire();
   }
 
   void skip(double delta) {
@@ -178,6 +186,7 @@ class Transport extends ChangeNotifier {
     unawaited(_stateSub?.cancel());
     unawaited(_audio?.dispose());
     _audio = null;
+    jumps.dispose();
     super.dispose();
   }
 }

@@ -192,6 +192,7 @@ class ShowCard extends StatelessWidget {
   Widget build(BuildContext context) => _Tappable(
     onTap: onTap,
     child: GlassCard(
+      quality: cardGlass,
       padding: const EdgeInsets.all(10),
       shape: const LiquidRoundedSuperellipse(borderRadius: 22),
       child: LayoutBuilder(
@@ -242,6 +243,7 @@ class EpisodeTile extends StatelessWidget {
     return _Tappable(
       onTap: onTap,
       child: GlassCard(
+        quality: cardGlass,
         padding: const EdgeInsets.all(10),
         shape: const LiquidRoundedSuperellipse(borderRadius: 22),
         child: LayoutBuilder(

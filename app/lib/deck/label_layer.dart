@@ -117,10 +117,16 @@ double marqueeOffset(double textWidth, double room, double t) {
   return s < _marqueeHold ? 0 : -(s - _marqueeHold) * _marqueeSpeed;
 }
 
+TextStyle _titleStyle(String title) =>
+    _shrink(title, typewriter(size: 36, color: rgb(0x251f17)), _labelText, _titleMinSize);
+
+/// Whether [title] is too long for the label, so it scrolls.
+bool titleScrolls(String title) => measureString(title, _titleStyle(title)) > _labelText;
+
 /// The label's typed title. One too long for the label scrolls through it,
 /// marquee style, fading in and out at the paper's edges.
 class LabelTitlePainter extends DeckPainter {
-  LabelTitlePainter(super.placement, this.frame, this.episode) : super(repaint: frame);
+  LabelTitlePainter(super.placement, this.frame, this.episode) : super(repaint: frame.title);
 
   final DeckFrame frame;
   final Episode episode;
@@ -129,7 +135,7 @@ class LabelTitlePainter extends DeckPainter {
   void paintDeck(Canvas canvas, Size view) {
     final r = labelRect(view.width);
     final title = episode.title;
-    final style = _shrink(title, typewriter(size: 36, color: rgb(0x251f17)), _labelText, _titleMinSize);
+    final style = _titleStyle(title);
     final width = measureString(title, style);
     final x = r.left + 24;
     const baseline = 77.0;
@@ -173,7 +179,7 @@ class LabelTitlePainter extends DeckPainter {
 
 /// The label's "load episode" hint, which brightens on hover.
 class LabelHintPainter extends DeckPainter {
-  LabelHintPainter(super.placement, this.frame) : super(repaint: frame);
+  LabelHintPainter(super.placement, this.frame) : super(repaint: frame.hint);
 
   final DeckFrame frame;
 

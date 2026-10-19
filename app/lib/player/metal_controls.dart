@@ -114,6 +114,9 @@ class _Rim extends CustomPainter {
 
 /* ---------------------------------------------------------------- seek -- */
 
+/// How long the slot keeps sampling after anything wakes it.
+const Duration _linger = Duration(milliseconds: 500);
+
 /// Engraved slot across the device with a metal thumb: drag or click to seek.
 class SeekSlot extends StatefulWidget {
   const SeekSlot({super.key, required this.transport});
@@ -131,21 +134,59 @@ class _SeekSlotState extends State<SeekSlot> with SingleTickerProviderStateMixin
   double _duration = 0;
   double? _drag;
 
+  /// When the ticker was last woken, in its own elapsed time; set on its
+  /// first tick after [_wake].
+  Duration? _wokeAt;
+
   Transport get _transport => widget.transport;
 
   @override
   void initState() {
     super.initState();
     _sample();
-    _ticker = createTicker((_) {
-      if (_sample()) setState(() {});
-    })..start();
+    _ticker = createTicker(_onTick);
+    _listen(widget.transport);
+    _wake();
+  }
+
+  @override
+  void didUpdateWidget(SeekSlot oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.transport != widget.transport) {
+      _unlisten(oldWidget.transport);
+      _listen(widget.transport);
+      _wake();
+    }
   }
 
   @override
   void dispose() {
+    _unlisten(_transport);
     _ticker.dispose();
     super.dispose();
+  }
+
+  void _listen(Transport t) {
+    t.addListener(_wake);
+    t.jumps.addListener(_wake);
+  }
+
+  void _unlisten(Transport t) {
+    t.removeListener(_wake);
+    t.jumps.removeListener(_wake);
+  }
+
+  void _wake() {
+    _wokeAt = null;
+    if (!_ticker.isActive) _ticker.start();
+  }
+
+  /// Samples the tape while it runs, and for a moment after anything else may
+  /// have moved it (a seek lands asynchronously); otherwise lets frames stop.
+  void _onTick(Duration elapsed) {
+    final since = _wokeAt ??= elapsed;
+    if (_sample()) setState(() {});
+    if (!_transport.playing && elapsed - since > _linger) _ticker.stop();
   }
 
   /// True when the thumb would move visibly or a readout changes.
