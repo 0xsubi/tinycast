@@ -1,12 +1,12 @@
 import 'dart:async';
 
 import 'package:flutter/cupertino.dart';
-import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
 import '../library/searches.dart';
 import '../playback/playback.dart';
 import '../podcast/models.dart';
 import '../ui/chrome.dart';
+import '../ui/metal_ui.dart';
 import '../ui/sections.dart';
 import '../ui/style.dart';
 import 'podcast_page.dart';
@@ -72,20 +72,18 @@ class _SearchPageState extends State<SearchPage> {
 
   @override
   Widget build(BuildContext context) {
-    return GlassPageFrame(
+    return PageFrame(
       body: CustomScrollView(
         slivers: [
           SliverToBoxAdapter(
             child: PageHeading(
               title: 'Find a show',
-              below: GlassSearchBar(
+              below: DisplayField(
                 key: const Key('search'),
                 controller: _query,
                 placeholder: 'Search podcasts',
                 onChanged: _changed,
                 onSubmitted: _submit,
-                height: 48,
-                textStyle: textStyle(size: 16),
               ),
             ),
           ),
@@ -157,21 +155,23 @@ class _RecentSearch extends StatelessWidget {
     behavior: HitTestBehavior.opaque,
     child: MouseRegion(
       cursor: SystemMouseCursors.click,
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 13),
-        decoration: BoxDecoration(
-          border: Border(bottom: BorderSide(color: inkAt(0.08), width: 0.5)),
-        ),
-        child: Row(
-          children: [
-            Icon(CupertinoIcons.clock, color: inkAt(0.45), size: 18),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Text(term, maxLines: 1, overflow: TextOverflow.ellipsis, style: textStyle(size: 16)),
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 13),
+            child: Row(
+              children: [
+                Icon(CupertinoIcons.clock, color: inkAt(0.5), size: 18),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Text(term, maxLines: 1, overflow: TextOverflow.ellipsis, style: textStyle(size: 16)),
+                ),
+                Icon(CupertinoIcons.arrow_up_left, color: inkAt(0.4), size: 16),
+              ],
             ),
-            Icon(CupertinoIcons.arrow_up_left, color: inkAt(0.35), size: 16),
-          ],
-        ),
+          ),
+          const EngravedRule(),
+        ],
       ),
     ),
   );

@@ -2,13 +2,15 @@ import 'dart:io';
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart' show SelectableText;
-import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
+
+import '../deck/paint_kit.dart' show white;
 
 import '../library/downloads.dart';
 import '../playback/playback.dart';
 import '../podcast/format.dart';
 import '../podcast/models.dart';
 import '../ui/chrome.dart';
+import '../ui/metal_ui.dart';
 import '../ui/sections.dart';
 import '../ui/style.dart';
 
@@ -47,9 +49,9 @@ class EpisodePage extends StatelessWidget {
     final heading = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(podcast.title.toUpperCase(), style: eyebrow(color: accent)),
+        Text(podcast.title.toUpperCase(), style: eyebrow(color: accentInk)),
         const SizedBox(height: 8),
-        Text(e.title, style: textStyle(size: 28, weight: FontWeight.w700, height: 1.18)),
+        Text(e.title, style: textStyle(size: 30, weight: FontWeight.w400, height: 1.18, spacing: -0.2)),
         if (podcast.author case final author?) ...[
           const SizedBox(height: 6),
           Text(author, style: textStyle(size: 15, weight: FontWeight.w500, alpha: 0.6)),
@@ -79,8 +81,7 @@ class EpisodePage extends StatelessWidget {
             SelectableText(e.description!, style: textStyle(size: 15, alpha: 0.78, height: 1.6)),
           ];
 
-    return GlassPageFrame(
-      artwork: _artwork,
+    return PageFrame(
       title: podcast.title,
       body: SingleChildScrollView(
         child: ContentColumn(
@@ -137,7 +138,7 @@ String? _format(String? mime) => switch (mime?.toLowerCase()) {
   _ => null,
 };
 
-/// The orange Play pill. Says "Resume" when this episode was left part-way
+/// The orange Play cap. Says "Resume" when this episode was left part-way
 /// or is paused on the deck, with how much has been heard along its bottom
 /// edge, and "Now playing" while it plays.
 class _PlayButton extends StatelessWidget {
@@ -147,7 +148,6 @@ class _PlayButton extends StatelessWidget {
   final PodcastEpisode episode;
   final VoidCallback onPlay;
 
-  static const LiquidRoundedSuperellipse _shape = LiquidRoundedSuperellipse(borderRadius: 26);
   static const double _height = 52;
 
   @override
@@ -171,45 +171,44 @@ class _PlayButton extends StatelessWidget {
           false when left != null => (CupertinoIcons.play_fill, 'Resume', left.fraction),
           false => (CupertinoIcons.play_fill, 'Play', null),
         };
-        return GlassButton.custom(
+        // How much has been heard shows as a line in the slot under the
+        // cap, like the played tape in the deck's seek slot.
+        return MetalButton(
           key: const Key('play-episode'),
-          onTap: onPlay,
+          onPressed: onPlay,
           height: _height,
-          shape: _shape,
-          settings: accentGlass,
-          glowColor: accent.withValues(alpha: 0.5),
-          stretch: 0.25,
-          child: ClipPath(
-            clipper: const ShapeBorderClipper(shape: _shape),
-            child: SizedBox(
-              height: _height,
-              child: Stack(
-                alignment: Alignment.center,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 30),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(icon, color: ink, size: 20),
-                        const SizedBox(width: 10),
-                        Text(label, style: textStyle(size: 16, weight: FontWeight.w600, alpha: 1)),
-                      ],
+          accent: true,
+          padding: EdgeInsets.zero,
+          child: SizedBox(
+            height: _height,
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 30),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(icon, size: 20),
+                      const SizedBox(width: 10),
+                      Text(label, style: const TextStyle(fontSize: 16)),
+                    ],
+                  ),
+                ),
+                if (heard != null && heard > 0)
+                  Positioned(
+                    left: 24,
+                    right: 24,
+                    bottom: 0,
+                    child: ProgressLine(
+                      key: const Key('resume-progress'),
+                      fraction: heard,
+                      radius: 1.5,
+                      fill: white,
+                      track: white.withValues(alpha: 0.18),
                     ),
                   ),
-                  if (heard != null && heard > 0)
-                    Positioned(
-                      left: 0,
-                      right: 0,
-                      bottom: 0,
-                      child: ProgressLine(
-                        key: const Key('resume-progress'),
-                        fraction: heard,
-                        track: ink.withValues(alpha: 0.25),
-                      ),
-                    ),
-                ],
-              ),
+              ],
             ),
           ),
         );
@@ -231,10 +230,12 @@ class _FavoriteButton extends StatelessWidget {
       listenable: library,
       builder: (context, _) {
         final on = library.isFavorite(podcast, episode);
-        return GlassIconButton(
+        return MetalIconButton(
           key: const Key('favorite'),
           size: 52,
-          icon: Icon(on ? CupertinoIcons.heart_fill : CupertinoIcons.heart, color: on ? accent : ink, size: 22),
+          iconSize: 22,
+          lit: on,
+          icon: on ? CupertinoIcons.heart_fill : CupertinoIcons.heart,
           semanticLabel: on ? 'Remove from favorites' : 'Add to favorites',
           onPressed: () => on ? library.unfavorite(podcast, episode) : library.favorite(podcast, episode),
         );
@@ -258,39 +259,33 @@ class _DownloadButton extends StatelessWidget {
       builder: (context, _) {
         if (downloads.isDownloading(podcast, episode)) {
           final progress = downloads.progress(podcast, episode);
-          return GlassButton.custom(
+          return MetalButton(
             key: const Key('download-cancel'),
-            onTap: () => downloads.cancel(podcast, episode),
+            onPressed: () => downloads.cancel(podcast, episode),
             height: 52,
-            shape: const LiquidRoundedSuperellipse(borderRadius: 26),
-            stretch: 0.25,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 18),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  GlassProgressIndicator.circular(value: progress, size: 18, color: accent),
-                  const SizedBox(width: 10),
-                  TabularText(
-                    progress == null ? 'Downloading' : '${(progress * 100).floor()}%',
-                    style: textStyle(size: 14, weight: FontWeight.w600),
-                  ),
-                  const SizedBox(width: 10),
-                  Icon(CupertinoIcons.xmark, size: 14, color: inkAt(0.6)),
-                ],
-              ),
+            semanticLabel: 'Cancel download',
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                MetalProgress(value: progress, size: 18),
+                const SizedBox(width: 10),
+                TabularText(
+                  progress == null ? 'Downloading' : '${(progress * 100).floor()}%',
+                  style: const TextStyle(fontSize: 14),
+                ),
+                const SizedBox(width: 10),
+                const Icon(CupertinoIcons.xmark, size: 14),
+              ],
             ),
           );
         }
         final downloaded = downloads.localFile(podcast, episode) != null;
-        return GlassIconButton(
+        return MetalIconButton(
           key: Key(downloaded ? 'delete-download' : 'download'),
           size: 52,
-          icon: Icon(
-            downloaded ? CupertinoIcons.arrow_down_circle_fill : CupertinoIcons.arrow_down_to_line,
-            color: downloaded ? accent : ink,
-            size: 22,
-          ),
+          iconSize: 22,
+          lit: downloaded,
+          icon: downloaded ? CupertinoIcons.arrow_down_circle_fill : CupertinoIcons.arrow_down_to_line,
           semanticLabel: downloaded ? 'Delete download' : 'Download',
           onPressed: () =>
               downloaded ? confirmDeleteDownload(context, podcast, episode) : downloads.start(podcast, episode),
@@ -303,13 +298,13 @@ class _DownloadButton extends StatelessWidget {
 /// Asks before deleting a downloaded episode from disk.
 Future<void> confirmDeleteDownload(BuildContext context, Podcast podcast, PodcastEpisode episode) {
   final downloads = AppScope.of(context).downloads;
-  return GlassDialog.show<void>(
+  return showMetalDialog<void>(
     context: context,
     title: 'Delete download?',
     message: '“${episode.title}” will be removed from this device. You can still stream it.',
     actions: [
-      GlassDialogAction(label: 'Cancel', onPressed: () => Navigator.of(context, rootNavigator: true).pop()),
-      GlassDialogAction(
+      MetalDialogAction(label: 'Cancel', onPressed: () => Navigator.of(context, rootNavigator: true).pop()),
+      MetalDialogAction(
         label: 'Delete',
         isDestructive: true,
         onPressed: () {
@@ -346,14 +341,14 @@ class _DownloadStatus extends StatelessWidget {
             cursor: SystemMouseCursors.click,
             child: Text(
               label,
-              style: textStyle(size: 13, weight: FontWeight.w600, color: accent),
+              style: textStyle(size: 13, weight: FontWeight.w600, color: accentInk),
             ),
           ),
         );
         return Padding(
           padding: const EdgeInsets.only(top: 14),
           child: error != null
-              ? Text(error, style: textStyle(size: 13, color: const Color(0xFFFF8A7A)))
+              ? Text(error, style: textStyle(size: 13, color: danger))
               : Wrap(
                   spacing: 14,
                   runSpacing: 6,

@@ -1,10 +1,10 @@
 import 'package:flutter/cupertino.dart';
-import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
 import '../playback/playback.dart';
 import '../podcast/format.dart';
 import '../podcast/models.dart';
 import '../ui/chrome.dart';
+import '../ui/metal_ui.dart';
 import '../ui/sections.dart' show SliverCrossAxisConstrained;
 import '../ui/style.dart';
 import 'episode_page.dart';
@@ -41,8 +41,7 @@ class _PodcastPageState extends State<PodcastPage> {
         // Fill in what the directory listing lacked from the feed itself.
         final show = feed == null ? podcast : podcast.withFeed(feed);
         final artwork = show.artwork;
-        return GlassPageFrame(
-          artwork: artwork,
+        return PageFrame(
           title: podcast.title,
           body: CustomScrollView(
             slivers: [
@@ -62,12 +61,10 @@ class _PodcastPageState extends State<PodcastPage> {
                       ? StateMessage(
                           text: '${snap.error}',
                           icon: CupertinoIcons.wifi_exclamationmark,
-                          action: GlassButton.custom(
-                            onTap: _retry,
-                            width: 120,
+                          action: MetalButton(
+                            onPressed: _retry,
                             height: 40,
-                            shape: const LiquidRoundedSuperellipse(borderRadius: 20),
-                            child: Text('Try again', style: textStyle(size: 14, weight: FontWeight.w600)),
+                            child: const Text('Try again', style: TextStyle(fontSize: 14)),
                           ),
                         )
                       : const StateMessage(text: 'Loading episodes…', loading: true),
@@ -99,17 +96,12 @@ class _PodcastPageState extends State<PodcastPage> {
                 Expanded(child: Text('${feed.episodes.length} EPISODES', style: eyebrow())),
                 SizedBox(
                   width: 200,
-                  child: GlassSegmentedControl(
+                  child: MetalSegments(
                     key: const Key('sort'),
                     height: 34,
-                    segments: const [
-                      GlassSegment(label: 'Newest'),
-                      GlassSegment(label: 'Oldest'),
-                    ],
-                    selectedIndex: _newestFirst ? 0 : 1,
-                    selectedTextStyle: textStyle(size: 13, weight: FontWeight.w600, alpha: 1),
-                    unselectedTextStyle: textStyle(size: 13, weight: FontWeight.w500, alpha: 0.6),
-                    onSegmentSelected: (i) => setState(() => _newestFirst = i == 0),
+                    labels: const ['Newest', 'Oldest'],
+                    selected: _newestFirst ? 0 : 1,
+                    onSelected: (i) => setState(() => _newestFirst = i == 0),
                   ),
                 ),
               ],
@@ -184,9 +176,9 @@ class _Header extends StatelessWidget {
     final details = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('PODCAST', style: eyebrow(color: accent)),
+        Text('PODCAST', style: eyebrow(color: accentInk)),
         const SizedBox(height: 6),
-        Text(podcast.title, style: textStyle(size: 30, weight: FontWeight.w700, height: 1.15)),
+        Text(podcast.title, style: textStyle(size: 32, weight: FontWeight.w400, height: 1.15, spacing: -0.2)),
         if (author != null) ...[
           const SizedBox(height: 6),
           Text(author, style: textStyle(size: 15, weight: FontWeight.w500, alpha: 0.65)),
@@ -237,27 +229,21 @@ class _SubscribeButton extends StatelessWidget {
       listenable: library,
       builder: (context, _) {
         final subscribed = library.isSubscribed(podcast);
-        return GlassButton.custom(
+        // The orange cap until subscribed; then a plain key, latched down.
+        return MetalButton(
           key: const Key('subscribe'),
-          onTap: () => subscribed ? library.unsubscribe(podcast) : library.subscribe(podcast),
+          onPressed: () => subscribed ? library.unsubscribe(podcast) : library.subscribe(podcast),
           height: 44,
-          shape: const LiquidRoundedSuperellipse(borderRadius: 22),
-          settings: subscribed ? null : accentGlass,
-          glowColor: subscribed ? null : accent.withValues(alpha: 0.5),
-          stretch: 0.25,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 22),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(subscribed ? CupertinoIcons.checkmark_alt : CupertinoIcons.add, color: ink, size: 18),
-                const SizedBox(width: 8),
-                Text(
-                  subscribed ? 'Subscribed' : 'Subscribe',
-                  style: textStyle(size: 15, weight: FontWeight.w600, alpha: 1),
-                ),
-              ],
-            ),
+          accent: !subscribed,
+          latched: subscribed,
+          padding: const EdgeInsets.symmetric(horizontal: 22),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(subscribed ? CupertinoIcons.checkmark_alt : CupertinoIcons.add, size: 18),
+              const SizedBox(width: 8),
+              Text(subscribed ? 'Subscribed' : 'Subscribe'),
+            ],
           ),
         );
       },
@@ -296,60 +282,54 @@ class EpisodeCard extends StatelessWidget {
       if (episode.duration != null) formatLength(episode.duration!),
       if (episode.type == 'trailer' || episode.type == 'bonus') episode.type!,
     ].join(' · ').toUpperCase();
-    return GestureDetector(
+    return MetalPlate(
       onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: MouseRegion(
-        cursor: SystemMouseCursors.click,
-        child: GlassCard(
-          padding: const EdgeInsets.all(12),
-          shape: const LiquidRoundedSuperellipse(borderRadius: 20),
-          child: Row(
-            children: [
-              Artwork(url: artwork, size: 72, radius: 12, shadow: false),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+      padding: const EdgeInsets.all(12),
+      radius: 16,
+      child: Row(
+        children: [
+          Artwork(url: artwork, size: 72, radius: 12, shadow: false),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (showPodcast)
+                  Text(
+                    podcast.title.toUpperCase(),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: eyebrow(color: accentInk),
+                  ),
+                Row(
                   children: [
-                    if (showPodcast)
-                      Text(
-                        podcast.title.toUpperCase(),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: eyebrow(color: accent),
-                      ),
-                    Row(
-                      children: [
-                        if (meta.isNotEmpty) Flexible(child: Text(meta, maxLines: 1, style: eyebrow())),
-                        _Badges(podcast: podcast, episode: episode),
-                      ],
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      episode.title,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: textStyle(size: 15, weight: FontWeight.w600, height: 1.25),
-                    ),
-                    if (episode.description != null) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        // Show notes run long; the card only has room for a taste.
-                        episode.description!.replaceAll(RegExp(r'\s+'), ' '),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: textStyle(size: 13, alpha: 0.55),
-                      ),
-                    ],
+                    if (meta.isNotEmpty) Flexible(child: Text(meta, maxLines: 1, style: eyebrow())),
+                    _Badges(podcast: podcast, episode: episode),
                   ],
                 ),
-              ),
-              const SizedBox(width: 10),
-              trailing ?? Icon(CupertinoIcons.chevron_right, color: inkAt(0.35), size: 16),
-            ],
+                const SizedBox(height: 3),
+                Text(
+                  episode.title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: textStyle(size: 15, weight: FontWeight.w600, height: 1.25),
+                ),
+                if (episode.description != null) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    // Show notes run long; the card only has room for a taste.
+                    episode.description!.replaceAll(RegExp(r'\s+'), ' '),
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: textStyle(size: 13, alpha: 0.55),
+                  ),
+                ],
+              ],
+            ),
           ),
-        ),
+          const SizedBox(width: 10),
+          trailing ?? Icon(CupertinoIcons.chevron_right, color: inkAt(0.4), size: 16),
+        ],
       ),
     );
   }
@@ -433,7 +413,7 @@ class _ExpandableTextState extends State<ExpandableText> {
                     padding: const EdgeInsets.only(top: 6),
                     child: Text(
                       _open ? 'Less' : 'More',
-                      style: textStyle(size: 14, weight: FontWeight.w600, color: accent),
+                      style: textStyle(size: 14, weight: FontWeight.w600, color: accentInk),
                     ),
                   ),
                 ),

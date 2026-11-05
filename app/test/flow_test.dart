@@ -532,4 +532,41 @@ void main() {
     expect(find.byKey(const ValueKey('favorite-ep-12')), findsNothing);
     expect(library.favorites, isEmpty);
   });
+
+  testWidgets('Home scrolls back to the top after scrolling down', (tester) async {
+    // A phone-sized window, no shows yet and a few interests: rows that load
+    // their own content scroll out of view and back.
+    final view = tester.view;
+    view.physicalSize = const Size(412, 900);
+    addTearDown(view.resetPhysicalSize);
+    await chooseInterests(library, allInterests.take(5).toList());
+    // Something left part-way, so a row of cards sits above the shows' rows.
+    await library.setProgress(_show, _feed.episodes[0], 600, length: 3725);
+    await tester.pumpWidget(
+      ReelPlayerApp(
+        library: library,
+        directory: _FakeDirectory(),
+        playback: Playback(transport: _FakeTransport()),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final list = find.byType(Scrollable).first;
+    ScrollPosition position() => tester.state<ScrollableState>(list).position;
+
+    // To the bottom…
+    for (var i = 0; i < 20 && position().pixels < position().maxScrollExtent; i++) {
+      await tester.drag(list, const Offset(0, -400));
+      await tester.pumpAndSettle();
+    }
+    expect(position().pixels, position().maxScrollExtent);
+
+    // …and back up, a screenful at a time, the way a thumb does it.
+    for (var i = 0; i < 40 && position().pixels > 0; i++) {
+      await tester.drag(list, const Offset(0, 200));
+      await tester.pumpAndSettle();
+    }
+    expect(position().pixels, 0);
+    expect(find.text('Home'), findsWidgets);
+    expect(find.text('LATEST EPISODES'), findsOneWidget);
+  });
 }

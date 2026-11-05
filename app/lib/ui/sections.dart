@@ -1,11 +1,10 @@
 import 'package:flutter/cupertino.dart';
-import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
-import '../deck/paint_kit.dart' show white;
 import '../library/library.dart';
 import '../podcast/format.dart';
 import '../podcast/models.dart';
 import 'chrome.dart';
+import 'metal_ui.dart';
 import 'style.dart';
 
 /// The top of a tab or list page: a small eyebrow over a large title, with
@@ -39,9 +38,9 @@ class PageHeading extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(eyebrowText, style: eyebrow(color: accent)),
+                      Text(eyebrowText, style: eyebrow(color: accentInk)),
                       const SizedBox(height: 6),
-                      Text(title, style: textStyle(size: 34, weight: FontWeight.w700, height: 1.1)),
+                      Text(title, style: textStyle(size: 36, weight: FontWeight.w300, height: 1.1, spacing: -0.3)),
                     ],
                   ),
                 ),
@@ -56,14 +55,23 @@ class PageHeading extends StatelessWidget {
   }
 }
 
-/// A section's small uppercase label, with an optional link on the right.
+/// A section's small uppercase label and an engraved rule running on from
+/// it, with an optional link on the right.
 Widget sectionHeading(String text, {Widget? trailing}) => Padding(
   padding: const EdgeInsets.only(bottom: 12),
-  child: Row(
-    children: [
-      Expanded(child: Text(text, style: eyebrow())),
-      ?trailing,
-    ],
+  child: LayoutBuilder(
+    // The label takes what it needs, up to most of the width; the rule the rest.
+    builder: (context, constraints) => Row(
+      children: [
+        ConstrainedBox(
+          constraints: BoxConstraints(maxWidth: constraints.maxWidth * 0.75),
+          child: Text(text, maxLines: 1, overflow: TextOverflow.ellipsis, style: eyebrow()),
+        ),
+        const SizedBox(width: 12),
+        const Expanded(child: EngravedRule()),
+        if (trailing != null) ...[const SizedBox(width: 12), trailing],
+      ],
+    ),
   ),
 );
 
@@ -81,7 +89,7 @@ Widget textLink(String label, Key key, VoidCallback onTap) => GestureDetector(
     cursor: SystemMouseCursors.click,
     child: Text(
       label,
-      style: textStyle(size: 13.5, weight: FontWeight.w600, color: accent),
+      style: textStyle(size: 13.5, weight: FontWeight.w600, color: accentInk),
     ),
   ),
 );
@@ -191,33 +199,31 @@ class ShowCard extends StatelessWidget {
   final VoidCallback onTap;
 
   @override
-  Widget build(BuildContext context) => _Tappable(
+  Widget build(BuildContext context) => MetalPlate(
     onTap: onTap,
-    child: GlassCard(
-      padding: const EdgeInsets.all(10),
-      shape: const LiquidRoundedSuperellipse(borderRadius: 22),
-      child: LayoutBuilder(
-        builder: (context, constraints) => Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Artwork(url: podcast.artwork, size: constraints.maxWidth, radius: 14),
-            const SizedBox(height: 10),
+    padding: const EdgeInsets.all(10),
+    radius: 18,
+    child: LayoutBuilder(
+      builder: (context, constraints) => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Artwork(url: podcast.artwork, size: constraints.maxWidth, radius: 14),
+          const SizedBox(height: 10),
+          Text(
+            podcast.title,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: textStyle(size: 14, weight: FontWeight.w600, height: 1.25),
+          ),
+          const SizedBox(height: 3),
+          if (podcast.author != null)
             Text(
-              podcast.title,
-              maxLines: 2,
+              podcast.author!,
+              maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: textStyle(size: 14, weight: FontWeight.w600, height: 1.25),
+              style: textStyle(size: 12.5, alpha: 0.55),
             ),
-            const SizedBox(height: 3),
-            if (podcast.author != null)
-              Text(
-                podcast.author!,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: textStyle(size: 12.5, alpha: 0.55),
-              ),
-          ],
-        ),
+        ],
       ),
     ),
   );
@@ -247,40 +253,38 @@ class EpisodeTile extends StatelessWidget {
             if (episode.duration != null) formatLength(episode.duration!),
           ].join(' · ');
     final fraction = heard?.fraction;
-    return _Tappable(
+    return MetalPlate(
       onTap: onTap,
-      child: GlassCard(
-        padding: const EdgeInsets.all(10),
-        shape: const LiquidRoundedSuperellipse(borderRadius: 22),
-        child: LayoutBuilder(
-          builder: (context, constraints) => Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Artwork(url: episode.artwork ?? podcast.artwork, size: constraints.maxWidth, radius: 14),
+      padding: const EdgeInsets.all(10),
+      radius: 18,
+      child: LayoutBuilder(
+        builder: (context, constraints) => Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Artwork(url: episode.artwork ?? podcast.artwork, size: constraints.maxWidth, radius: 14),
+            const SizedBox(height: 10),
+            Text(
+              podcast.title.toUpperCase(),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: eyebrow(color: accentInk),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              episode.title,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: textStyle(size: 14, weight: FontWeight.w600, height: 1.25),
+            ),
+            if (fraction != null) ...[
               const SizedBox(height: 10),
-              Text(
-                podcast.title.toUpperCase(),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: eyebrow(color: accent),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                episode.title,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: textStyle(size: 14, weight: FontWeight.w600, height: 1.25),
-              ),
-              if (fraction != null) ...[
-                const SizedBox(height: 10),
-                ProgressLine(key: const Key('heard'), fraction: fraction, radius: 1.5),
-              ],
-              if (meta.isNotEmpty) ...[
-                SizedBox(height: fraction != null ? 6 : 4),
-                Text(meta, maxLines: 1, overflow: TextOverflow.ellipsis, style: textStyle(size: 12.5, alpha: 0.55)),
-              ],
+              ProgressLine(key: const Key('heard'), fraction: fraction, radius: 1.5),
             ],
-          ),
+            if (meta.isNotEmpty) ...[
+              SizedBox(height: fraction != null ? 6 : 4),
+              Text(meta, maxLines: 1, overflow: TextOverflow.ellipsis, style: textStyle(size: 12.5, alpha: 0.55)),
+            ],
+          ],
         ),
       ),
     );
@@ -295,7 +299,7 @@ String heardOf(Listening l) {
 
 /// A thin bar filled from the left with how much of an episode has been heard.
 class ProgressLine extends StatelessWidget {
-  const ProgressLine({super.key, required this.fraction, this.height = 3, this.radius = 0, this.track});
+  const ProgressLine({super.key, required this.fraction, this.height = 3, this.radius = 0, this.track, this.fill});
 
   /// 0–1.
   final double fraction;
@@ -304,6 +308,9 @@ class ProgressLine extends StatelessWidget {
 
   /// The unfilled part; a faint ink by default.
   final Color? track;
+
+  /// The heard part; the accent by default.
+  final Color? fill;
 
   @override
   Widget build(BuildContext context) {
@@ -316,24 +323,10 @@ class ProgressLine extends StatelessWidget {
           alignment: Alignment.centerLeft,
           widthFactor: fraction.clamp(0.0, 1.0),
           child: DecoratedBox(
-            decoration: BoxDecoration(color: white, borderRadius: r),
+            decoration: BoxDecoration(color: fill ?? accent, borderRadius: r),
           ),
         ),
       ),
     );
   }
-}
-
-class _Tappable extends StatelessWidget {
-  const _Tappable({required this.onTap, required this.child});
-
-  final VoidCallback onTap;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) => GestureDetector(
-    onTap: onTap,
-    behavior: HitTestBehavior.opaque,
-    child: MouseRegion(cursor: SystemMouseCursors.click, child: child),
-  );
 }

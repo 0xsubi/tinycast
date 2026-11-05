@@ -1,16 +1,19 @@
 import 'package:flutter/cupertino.dart';
-import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
+
+import '../deck/paint_kit.dart' show white;
 
 import '../pages/player_page.dart';
 import '../playback/playback.dart';
+import 'metal_ui.dart';
 import 'style.dart';
 
 /// Widest the browse pages' content grows on a big window.
 const double contentWidth = 960;
 
 /// Room left under scrolling content for what floats at the bottom: the
-/// now-playing bar, and the tab bar on the tabs' pages.
-double bottomClearance(BuildContext context) => InTabShell.of(context) ? 180 : 110;
+/// now-playing bar. In the tab shell it and the tab bar sit in a band of
+/// their own below the page, so only a margin is needed.
+double bottomClearance(BuildContext context) => InTabShell.of(context) ? 32 : 110;
 
 /// Marks pages shown inside the tab shell, which floats the tab bar and the
 /// now-playing bar over them itself.
@@ -36,53 +39,83 @@ void openPlayer(BuildContext context) {
   );
 }
 
-/// A browse page: glass app bar with a back button over a [Backdrop], and the
-/// now-playing bar floating at the bottom (outside the tab shell, which has its own).
-class GlassPageFrame extends StatelessWidget {
-  const GlassPageFrame({super.key, required this.body, this.artwork, this.title});
+/// A browse page on the device's aluminium. A page that can go back gets a
+/// band across the top with a back key and its [title]; outside the tab
+/// shell the now-playing bar floats at the bottom.
+class PageFrame extends StatelessWidget {
+  const PageFrame({super.key, required this.body, this.title});
 
   final Widget body;
-  final String? artwork;
   final String? title;
 
   @override
   Widget build(BuildContext context) {
     final canPop = Navigator.of(context).canPop();
-    return GlassScaffold(
-      appBarHeight: _barHeight,
-      background: Backdrop(artwork: artwork),
-      appBar: canPop
-          ? GlassAppBar(
-              toolbarHeight: _barHeight,
-              padding: const EdgeInsets.symmetric(horizontal: 14),
-              leading: GlassIconButton(
-                key: const Key('back'),
-                icon: Icon(CupertinoIcons.chevron_left, color: ink, size: 20),
-                semanticLabel: 'Back',
-                onPressed: () => Navigator.of(context).maybePop(),
+    Widget page = body;
+    if (canPop) {
+      page = Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          MetalBand(
+            child: Padding(
+              padding: EdgeInsets.only(top: MediaQuery.paddingOf(context).top),
+              child: SizedBox(
+                height: _barHeight,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                  child: Row(
+                    children: [
+                      MetalIconButton(
+                        key: const Key('back'),
+                        icon: CupertinoIcons.chevron_left,
+                        size: 40,
+                        semanticLabel: 'Back',
+                        onPressed: () => Navigator.of(context).maybePop(),
+                      ),
+                      Expanded(
+                        child: title == null
+                            ? const SizedBox()
+                            : Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 12),
+                                child: Text(
+                                  title!.toUpperCase(),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  textAlign: TextAlign.center,
+                                  style: textStyle(size: 13, weight: FontWeight.w600, spacing: 2, alpha: 0.7),
+                                ),
+                              ),
+                      ),
+                      const SizedBox(width: 40),
+                    ],
+                  ),
+                ),
               ),
-              title: title == null
-                  ? null
-                  : Text(
-                      title!,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: textStyle(size: 15, weight: FontWeight.w600),
-                    ),
-            )
-          : null,
-      bodyOverlays: InTabShell.of(context)
-          ? null
-          : const [Positioned(left: 16, right: 16, bottom: 20, child: Center(child: NowPlayingBar()))],
-      body: body,
+            ),
+          ),
+          Expanded(
+            child: MediaQuery.removePadding(context: context, removeTop: true, child: body),
+          ),
+        ],
+      );
+    }
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        const MetalBackground(),
+        page,
+        if (!InTabShell.of(context))
+          const Positioned(left: 16, right: 16, bottom: 20, child: Center(child: NowPlayingBar())),
+      ],
     );
   }
 }
 
 const double _barHeight = 60;
 
-/// Top padding that clears the glass app bar.
-double appBarClearance(BuildContext context) => MediaQuery.paddingOf(context).top + _barHeight + 16;
+/// Top padding for a page's content: clear of the status bar, or, under the
+/// band of a page that can go back, a margin below it.
+double appBarClearance(BuildContext context) => MediaQuery.paddingOf(context).top + 16;
 
 /// Centres browse content and caps its width.
 class ContentColumn extends StatelessWidget {
@@ -103,7 +136,8 @@ class ContentColumn extends StatelessWidget {
   );
 }
 
-/// Floating pill showing what is on the deck; tap to open the player.
+/// What is on the deck, in a display window like the deck's own, with a key
+/// to play or pause it; tap the display to open the player.
 class NowPlayingBar extends StatelessWidget {
   const NowPlayingBar({super.key});
 
@@ -118,54 +152,60 @@ class NowPlayingBar extends StatelessWidget {
         final transport = playback.transport;
         return ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 520),
-          child: GestureDetector(
-            key: const Key('now-playing'),
-            behavior: HitTestBehavior.opaque,
-            onTap: () => openPlayer(context),
-            child: GlassContainer(
-              shape: const LiquidRoundedSuperellipse(borderRadius: 24),
-              padding: const EdgeInsets.fromLTRB(8, 8, 14, 8),
-              child: Row(
-                children: [
-                  Artwork(url: now.artwork, size: 44, radius: 10, shadow: false),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          now.label.title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: textStyle(size: 14, weight: FontWeight.w600),
-                        ),
-                        Text(
-                          transport.buffering ? 'Buffering…' : now.label.show,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: textStyle(size: 12.5, alpha: 0.55),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  GestureDetector(
-                    key: const Key('now-playing-toggle'),
-                    behavior: HitTestBehavior.opaque,
-                    onTap: transport.toggle,
-                    child: Padding(
-                      padding: const EdgeInsets.all(6),
-                      child: Icon(
-                        transport.playing ? CupertinoIcons.pause_fill : CupertinoIcons.play_fill,
-                        color: ink,
-                        size: 24,
+          child: Row(
+            children: [
+              Expanded(
+                child: GestureDetector(
+                  key: const Key('now-playing'),
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => openPlayer(context),
+                  child: MouseRegion(
+                    cursor: SystemMouseCursors.click,
+                    child: DisplayWindow(
+                      radius: 12,
+                      padding: const EdgeInsets.fromLTRB(9, 9, 14, 9),
+                      child: Row(
+                        children: [
+                          Artwork(url: now.artwork, size: 40, radius: 7, shadow: false),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  now.label.title,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: textStyle(size: 14, weight: FontWeight.w700, color: pixel),
+                                ),
+                                Text(
+                                  transport.buffering ? 'Buffering…' : now.label.show,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: textStyle(size: 12.5, color: pixel.withValues(alpha: 0.55)),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Lamp(on: transport.playing),
+                        ],
                       ),
                     ),
                   ),
-                ],
+                ),
               ),
-            ),
+              const SizedBox(width: 10),
+              MetalIconButton(
+                key: const Key('now-playing-toggle'),
+                icon: transport.playing ? CupertinoIcons.pause_fill : CupertinoIcons.play_fill,
+                size: 52,
+                iconSize: 22,
+                semanticLabel: transport.playing ? 'Pause' : 'Play',
+                onPressed: transport.toggle,
+              ),
+            ],
           ),
         );
       },
@@ -184,14 +224,14 @@ class MetaPill extends StatelessWidget {
   Widget build(BuildContext context) => Container(
     padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
     decoration: BoxDecoration(
-      color: inkAt(0.07),
+      color: white.withValues(alpha: 0.22),
       borderRadius: BorderRadius.circular(99),
-      border: Border.all(color: inkAt(0.1)),
+      border: Border.all(color: inkAt(0.2)),
     ),
     child: Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        if (icon != null) ...[Icon(icon, size: 13, color: inkAt(0.7)), const SizedBox(width: 6)],
+        if (icon != null) ...[Icon(icon, size: 13, color: inkAt(0.6)), const SizedBox(width: 6)],
         Text(text, style: textStyle(size: 12.5, weight: FontWeight.w500, alpha: 0.8)),
       ],
     ),
@@ -213,10 +253,7 @@ class StateMessage extends StatelessWidget {
     child: Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        if (loading)
-          const GlassProgressIndicator.circular(size: 28, color: accent)
-        else if (icon != null)
-          Icon(icon, size: 34, color: inkAt(0.4)),
+        if (loading) const MetalProgress(size: 28) else if (icon != null) Icon(icon, size: 34, color: inkAt(0.4)),
         const SizedBox(height: 14),
         Text(text, textAlign: TextAlign.center, style: textStyle(size: 14, alpha: 0.6)),
         if (action != null) ...[const SizedBox(height: 16), action!],

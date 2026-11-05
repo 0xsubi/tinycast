@@ -5,12 +5,12 @@ import 'package:desktop_drop/desktop_drop.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
-import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
 import '../deck/label_layer.dart';
 import '../deck/tape_deck.dart';
 import '../playback/playback.dart';
 import '../player/metal_controls.dart';
+import '../ui/metal_ui.dart';
 
 const Set<String> _audioExtensions = {
   'mp3',
@@ -99,35 +99,33 @@ class _PlayerPageState extends State<PlayerPage> {
     final transport = playback.transport;
     final canPop = Navigator.of(context).canPop();
     return CupertinoPageScaffold(
-      child: GlassPage(
-        child: Focus(
-          autofocus: true,
-          onKeyEvent: _onKey,
-          child: MetalDevice(
-            transport: transport,
-            deck: (unit, upright) => ListenableBuilder(
-              listenable: playback,
-              builder: (context, _) => TapeDeck(
-                transport: transport,
-                episode: playback.current?.label ?? _blank,
-                onPickFile: _pickFile,
-                onDropFiles: _dropFiles,
-                unit: unit,
-                upright: upright,
-                failed: playback.error != null,
-                acceptsDrops: _desktop,
-                leading: canPop
-                    ? ExcludeFocus(
-                        child: GlassIconButton(
-                          key: const Key('close-player'),
-                          size: bandButtonSize(unit),
-                          icon: const Icon(CupertinoIcons.chevron_down, color: Color(0xFF333331), size: 20),
-                          semanticLabel: 'Close player',
-                          onPressed: () => Navigator.of(context).maybePop(),
-                        ),
-                      )
-                    : null,
-              ),
+      child: Focus(
+        autofocus: true,
+        onKeyEvent: _onKey,
+        child: MetalDevice(
+          transport: transport,
+          deck: (unit, upright) => ListenableBuilder(
+            listenable: playback,
+            builder: (context, _) => TapeDeck(
+              transport: transport,
+              episode: playback.current?.label ?? _blank,
+              onPickFile: _pickFile,
+              onDropFiles: _dropFiles,
+              unit: unit,
+              upright: upright,
+              failed: playback.error != null,
+              acceptsDrops: _desktop,
+              leading: canPop
+                  ? ExcludeFocus(
+                      child: MetalIconButton(
+                        key: const Key('close-player'),
+                        size: bandButtonSize(unit),
+                        icon: CupertinoIcons.chevron_down,
+                        semanticLabel: 'Close player',
+                        onPressed: () => Navigator.of(context).maybePop(),
+                      ),
+                    )
+                  : null,
             ),
           ),
         ),

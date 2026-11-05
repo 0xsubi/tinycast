@@ -3,12 +3,12 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart' show SelectableText;
-import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
 import '../library/downloads.dart';
 import '../library/library.dart';
 import '../playback/playback.dart';
 import '../ui/chrome.dart';
+import '../ui/metal_ui.dart';
 import '../ui/sections.dart';
 import '../ui/style.dart';
 import 'episode_page.dart';
@@ -22,7 +22,7 @@ class LibraryPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final library = AppScope.of(context).library;
     void push(Widget page) => Navigator.of(context).push(CupertinoPageRoute<void>(builder: (_) => page));
-    return GlassPageFrame(
+    return PageFrame(
       body: ListenableBuilder(
         listenable: library,
         builder: (context, _) => ListView(
@@ -30,9 +30,9 @@ class LibraryPage extends StatelessWidget {
             PageHeading(
               title: 'Library',
               trailing: canChooseDownloadFolder
-                  ? GlassIconButton(
+                  ? MetalIconButton(
                       key: const Key('settings'),
-                      icon: Icon(CupertinoIcons.gear_alt, color: ink, size: 20),
+                      icon: CupertinoIcons.gear_alt,
                       semanticLabel: 'Settings',
                       onPressed: () => showSettings(context),
                     )
@@ -84,26 +84,20 @@ class _MenuRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Padding(
     padding: const EdgeInsets.only(bottom: 10),
-    child: GestureDetector(
+    child: MetalPlate(
       onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: MouseRegion(
-        cursor: SystemMouseCursors.click,
-        child: GlassCard(
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
-          shape: const LiquidRoundedSuperellipse(borderRadius: 20),
-          child: Row(
-            children: [
-              Icon(icon, color: accent, size: 22),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Text(label, style: textStyle(size: 17, weight: FontWeight.w600)),
-              ),
-              if (count > 0) ...[Text('$count', style: textStyle(size: 15, alpha: 0.45)), const SizedBox(width: 10)],
-              Icon(CupertinoIcons.chevron_right, color: inkAt(0.35), size: 16),
-            ],
+      radius: 16,
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+      child: Row(
+        children: [
+          Icon(icon, color: accent, size: 22),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Text(label, style: textStyle(size: 17, weight: FontWeight.w600)),
           ),
-        ),
+          if (count > 0) ...[Text('$count', style: textStyle(size: 15, alpha: 0.45)), const SizedBox(width: 10)],
+          Icon(CupertinoIcons.chevron_right, color: inkAt(0.4), size: 16),
+        ],
       ),
     ),
   );
@@ -116,7 +110,7 @@ class LibraryPodcastsPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final library = AppScope.of(context).library;
-    return GlassPageFrame(
+    return PageFrame(
       body: ListenableBuilder(
         listenable: library,
         builder: (context, _) {
@@ -217,7 +211,7 @@ class _EpisodeList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final library = AppScope.of(context).library;
-    return GlassPageFrame(
+    return PageFrame(
       body: ListenableBuilder(
         listenable: library,
         builder: (context, _) {
@@ -261,13 +255,13 @@ class _EpisodeList extends StatelessWidget {
 }
 
 /// Settings: where downloads are saved (desktop only).
-Future<void> showSettings(BuildContext context) => GlassDialog.show<void>(
+Future<void> showSettings(BuildContext context) => showMetalDialog<void>(
   context: context,
   title: 'Downloads',
   maxWidth: 380,
   content: _DownloadFolderSetting(downloads: AppScope.of(context).downloads),
   actions: [
-    GlassDialogAction(
+    MetalDialogAction(
       label: 'Done',
       isPrimary: true,
       onPressed: () => Navigator.of(context, rootNavigator: true).pop(),
@@ -297,7 +291,7 @@ class _DownloadFolderSetting extends StatelessWidget {
         cursor: SystemMouseCursors.click,
         child: Text(
           label,
-          style: textStyle(size: 14, weight: FontWeight.w600, color: accent),
+          style: textStyle(size: 14, weight: FontWeight.w600, color: accentInk),
         ),
       ),
     );
