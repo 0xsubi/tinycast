@@ -1,8 +1,8 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:just_audio_background/just_audio_background.dart';
-import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
 import 'deck/paint_kit.dart';
 import 'deck/textures.dart';
@@ -25,17 +25,8 @@ Future<void> main() async {
       androidNotificationOngoing: true,
     );
   }
-  final (library, _, _) = await (
-    Library.open(),
-    Textures.load(),
-    LiquidGlassWidgets.initialize(enablePerformanceMonitor: false),
-  ).wait;
-  runApp(
-    LiquidGlassWidgets.wrap(
-      brightnessResolver: Theme.maybeBrightnessOf,
-      child: ReelPlayerApp(library: library),
-    ),
-  );
+  final (library, _) = await (Library.open(), Textures.load()).wait;
+  runApp(ReelPlayerApp(library: library));
 }
 
 class ReelPlayerApp extends StatefulWidget {
@@ -77,17 +68,21 @@ class _ReelPlayerAppState extends State<ReelPlayerApp> {
         title: 'tinycast',
         debugShowCheckedModeBanner: false,
         theme: ThemeData(
-          brightness: Brightness.dark,
+          brightness: Brightness.light,
           fontFamily: urbanist,
           scaffoldBackgroundColor: stage,
-          colorScheme: ColorScheme.fromSeed(seedColor: accent, brightness: Brightness.dark, primary: accent),
+          colorScheme: ColorScheme.fromSeed(seedColor: accent, brightness: Brightness.light, primary: accent),
           textSelectionTheme: TextSelectionThemeData(
             cursorColor: accent,
             selectionColor: accent.withValues(alpha: 0.35),
           ),
         ),
-        // Every route gets a Material ancestor for text styles and selection.
-        builder: (context, child) => Material(type: MaterialType.transparency, child: child),
+        // Every route gets a Material ancestor for text styles and selection,
+        // and dark status bar icons over the pale aluminium.
+        builder: (context, child) => AnnotatedRegion<SystemUiOverlayStyle>(
+          value: SystemUiOverlayStyle.dark,
+          child: Material(type: MaterialType.transparency, child: child),
+        ),
         home: widget.home ?? const FirstRun(child: TabShell()),
       ),
     );

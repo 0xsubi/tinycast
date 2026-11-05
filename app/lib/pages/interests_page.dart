@@ -1,9 +1,9 @@
 import 'package:flutter/cupertino.dart';
-import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
 import '../playback/playback.dart';
 import '../podcast/interests.dart';
 import '../ui/chrome.dart';
+import '../ui/metal_ui.dart';
 import '../ui/style.dart';
 
 /// Shows [child] once the user has been asked about their interests, and the
@@ -50,16 +50,19 @@ class _InterestsPageState extends State<InterestsPage> {
   @override
   Widget build(BuildContext context) {
     final top = widget.welcome ? MediaQuery.paddingOf(context).top + 44 : appBarClearance(context);
-    return GlassPageFrame(
+    return PageFrame(
       body: SingleChildScrollView(
         padding: EdgeInsets.only(top: top, bottom: bottomClearance(context)),
         child: ContentColumn(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(widget.welcome ? 'WELCOME TO TINYCAST' : 'YOUR INTERESTS', style: eyebrow(color: accent)),
+              Text(widget.welcome ? 'WELCOME TO TINYCAST' : 'YOUR INTERESTS', style: eyebrow(color: accentInk)),
               const SizedBox(height: 6),
-              Text('What do you like to listen to?', style: textStyle(size: 34, weight: FontWeight.w700, height: 1.1)),
+              Text(
+                'What do you like to listen to?',
+                style: textStyle(size: 36, weight: FontWeight.w300, height: 1.1, spacing: -0.3),
+              ),
               const SizedBox(height: 10),
               Text(
                 'Pick a few topics and your home page fills with the top shows in each.',
@@ -71,16 +74,10 @@ class _InterestsPageState extends State<InterestsPage> {
                 runSpacing: 10,
                 children: [
                   for (final interest in allInterests)
-                    GlassChip(
+                    _InterestKey(
                       key: ValueKey('interest-${interest.genre}'),
-                      label: interest.name,
-                      icon: Icon(_icons[interest.genre] ?? CupertinoIcons.circle),
-                      iconSize: 15,
-                      iconColor: _picked.contains(interest) ? ink : inkAt(0.7),
-                      labelStyle: textStyle(size: 14.5, weight: FontWeight.w600),
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                      selected: _picked.contains(interest),
-                      selectedColor: accent.withValues(alpha: 0.85),
+                      interest: interest,
+                      picked: _picked.contains(interest),
                       onTap: () => _toggle(interest),
                     ),
                 ],
@@ -100,7 +97,7 @@ class _InterestsPageState extends State<InterestsPage> {
                       onTap: () => _save(const []),
                       child: MouseRegion(
                         cursor: SystemMouseCursors.click,
-                        child: Text('Skip for now', style: textStyle(size: 15, weight: FontWeight.w600, alpha: 0.6)),
+                        child: Text('Skip for now', style: textStyle(size: 15, weight: FontWeight.w600, alpha: 0.65)),
                       ),
                     ),
                   ],
@@ -127,19 +124,43 @@ class _DoneButton extends StatelessWidget {
     duration: const Duration(milliseconds: 150),
     child: IgnorePointer(
       ignoring: !enabled,
-      child: GlassButton.custom(
+      child: MetalButton(
         key: const Key('save-interests'),
-        onTap: onTap,
+        onPressed: onTap,
         height: 52,
-        shape: const LiquidRoundedSuperellipse(borderRadius: 26),
-        settings: accentGlass,
-        glowColor: accent.withValues(alpha: 0.5),
-        stretch: 0.25,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 34),
-          child: Text(label, style: textStyle(size: 16, weight: FontWeight.w600, alpha: 1)),
-        ),
+        accent: true,
+        padding: const EdgeInsets.symmetric(horizontal: 34),
+        child: Text(label, style: const TextStyle(fontSize: 16)),
       ),
+    ),
+  );
+}
+
+/// A topic as a key that latches down, its lamp lit, while picked.
+class _InterestKey extends StatelessWidget {
+  const _InterestKey({super.key, required this.interest, required this.picked, required this.onTap});
+
+  final Interest interest;
+  final bool picked;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => MetalButton(
+    onPressed: onTap,
+    height: 42,
+    radius: 12,
+    latched: picked,
+    lit: picked,
+    padding: const EdgeInsets.symmetric(horizontal: 14),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(_icons[interest.genre] ?? CupertinoIcons.circle, size: 15),
+        const SizedBox(width: 8),
+        Text(interest.name, style: const TextStyle(fontSize: 14.5)),
+        const SizedBox(width: 10),
+        Lamp(on: picked, size: 6),
+      ],
     ),
   );
 }

@@ -17,14 +17,11 @@ class DeckFrame {
   /// Tape pack radius.
   final Map<Side, double> radius;
 
-  /// Opacity of the label's "load episode" hint (brightens on hover).
-  double labelHint = 0.55;
-
   /// Status lamp brightness, 0–1.
   double lamp = 0;
 
-  /// How far the load button is pushed in, 0–1.
-  double loadTravel = 0;
+  /// How far the sleep button is pushed in, 0–1.
+  double sleepTravel = 0;
 
   /// Seconds since the deck started animating.
   double clock = 0;
@@ -42,17 +39,14 @@ class DeckFrame {
   /// The display's text or the lamp changed.
   final Signal display = Signal();
 
-  /// The load button moved.
+  /// The sleep button moved.
   final Signal strip = Signal();
 
   /// The label's title scrolled.
   final Signal title = Signal();
 
-  /// The label's hint faded.
-  final Signal hint = Signal();
-
   void dispose() {
-    for (final s in [spin, display, strip, title, hint]) {
+    for (final s in [spin, display, strip, title]) {
       s.dispose();
     }
   }

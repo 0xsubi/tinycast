@@ -86,6 +86,10 @@ class Library extends ChangeNotifier {
 
   static const int _version = 3;
 
+  /// Marks an [export], and its layout.
+  static const String _exportApp = 'tinycast';
+  static const int _exportFormat = 1;
+
   /// Opens (creating if needed) the library database. Tests pass an FFI
   /// [factory] and [inMemoryDatabasePath].
   static Future<Library> open({DatabaseFactory? factory, String? path}) async {
@@ -331,6 +335,136 @@ class Library extends ChangeNotifier {
     }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
+  /* -------------------------------------------------------- export/import -- */
+
+  /// The parts of the library worth carrying to another device, as JSON:
+  /// subscriptions, favorites and listening progress. Downloads stay behind
+  /// (their files are this device's), as do settings.
+  Map<String, Object?> export() => {
+    'app': _exportApp,
+    'format': _exportFormat,
+    'exported_at': DateTime.now().millisecondsSinceEpoch,
+    'subscriptions': [
+      for (final s in _subscriptions)
+        {
+          'feed': s.podcast.feed.toString(),
+          'title': s.podcast.title,
+          'author': s.podcast.author,
+          'artwork': s.podcast.artwork,
+          'genre': s.podcast.genre,
+          'subscribed_at': s.subscribedAt.millisecondsSinceEpoch,
+        },
+    ],
+    'favorites': [
+      for (final e in _episodes.values)
+        if (e.favoritedAt case final at?)
+          {..._episodeToRow(e.podcast, e.episode), 'favorited_at': at.millisecondsSinceEpoch},
+    ],
+    'progress': [
+      for (final MapEntry(:key, value: p) in _progress.entries)
+        {
+          ...switch (p.snapshot) {
+            (final podcast, final episode) => _episodeToRow(podcast, episode),
+            null => {'feed': key.split('\n').first, 'id': key.split('\n').last},
+          },
+          'position': p.position,
+          'length': p.length,
+          'updated_at': p.updatedAt.millisecondsSinceEpoch,
+        },
+    ],
+  };
+
+  /// Merges an [export] from another device into this library: shows and
+  /// favorites it has that this one lacks are added, and its listening
+  /// positions win where they are newer. Nothing here is removed. Throws a
+  /// [FormatException] if [data] is not a library export.
+  Future<LibraryImport> import(Object? data) async {
+    final List<_Subscription> subscriptions;
+    final List<SavedEpisode> favorites;
+    final List<(String, _Progress)> progress;
+    try {
+      if (data is! Map || data['app'] != _exportApp) throw const FormatException();
+      final format = data['format'];
+      if (format is! int || format > _exportFormat) {
+        throw const FormatException('This library was exported by a newer version of tinycast');
+      }
+      List<Map<String, Object?>> rows(String name) => [
+        for (final row in (data[name] as List?) ?? const []) (row as Map).cast<String, Object?>(),
+      ];
+      subscriptions = [
+        for (final row in rows('subscriptions'))
+          _Subscription(_podcastFromRow(row, ''), _time(row['subscribed_at']) ?? DateTime.now()),
+      ];
+      favorites = [
+        for (final row in rows('favorites'))
+          if (_time(row['favorited_at']) case final at?) _savedFromRow(row).copyWith(favoritedAt: () => at),
+      ];
+      progress = [
+        for (final row in rows('progress')) (_key(row['feed']! as String, row['id']! as String), _progressFromRow(row)),
+      ];
+    } on FormatException catch (e) {
+      throw FormatException(e.message.isEmpty ? 'Not a tinycast library file' : e.message);
+    } on Object {
+      throw const FormatException('This library file is damaged');
+    }
+
+    final batch = _db.batch();
+    var addedShows = 0;
+    for (final s in subscriptions) {
+      if (isSubscribed(s.podcast)) continue;
+      _subscriptions.add(s);
+      addedShows++;
+      batch.insert('subscriptions', {
+        'feed': s.podcast.feed.toString(),
+        'title': s.podcast.title,
+        'author': s.podcast.author,
+        'artwork': s.podcast.artwork,
+        'genre': s.podcast.genre,
+        'subscribed_at': s.subscribedAt.millisecondsSinceEpoch,
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+    }
+    _subscriptions.sort((a, b) => b.subscribedAt.compareTo(a.subscribedAt));
+
+    var addedFavorites = 0;
+    for (final f in favorites) {
+      final key = _key(f.podcast.feed.toString(), f.episode.id);
+      final current = _episodes[key];
+      if (current?.isFavorite ?? false) continue;
+      // Keep this device's download of it, if it has one.
+      final next = current?.copyWith(favoritedAt: () => f.favoritedAt) ?? f;
+      _episodes[key] = next;
+      addedFavorites++;
+      batch.insert('episodes', _savedToRow(next), conflictAlgorithm: ConflictAlgorithm.replace);
+    }
+
+    var movedOn = 0;
+    for (final (key, p) in progress) {
+      final current = _progress[key];
+      if (current != null && !p.updatedAt.isAfter(current.updatedAt)) continue;
+      // An old row without its episode keeps whatever copy this device has.
+      final next = _Progress(p.position, p.length ?? current?.length, p.updatedAt, p.snapshot ?? current?.snapshot);
+      _progress[key] = next;
+      movedOn++;
+      final [feed, id] = key.split('\n');
+      batch.insert('progress', {
+        ...switch (next.snapshot) {
+          (final podcast, final episode) => _episodeToRow(podcast, episode),
+          null => {'feed': feed, 'id': id},
+        },
+        'position': next.position,
+        'length': next.length,
+        'updated_at': next.updatedAt.millisecondsSinceEpoch,
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+    }
+
+    final result = LibraryImport(subscriptions: addedShows, favorites: addedFavorites, progress: movedOn);
+    if (result.isEmpty) return result;
+    if (addedShows + addedFavorites > 0) notifyListeners();
+    if (movedOn > 0) _progressChanges.fire();
+    await batch.commit(noResult: true);
+    return result;
+  }
+
   /* ------------------------------------------------------------- settings -- */
 
   String? setting(String key) => _settings[key];
@@ -347,6 +481,22 @@ class Library extends ChangeNotifier {
       await _db.insert('settings', {'key': key, 'value': value}, conflictAlgorithm: ConflictAlgorithm.replace);
     }
   }
+}
+
+/// What an import brought in that this device did not have.
+class LibraryImport {
+  const LibraryImport({required this.subscriptions, required this.favorites, required this.progress});
+
+  /// Shows newly subscribed to.
+  final int subscriptions;
+
+  /// Episodes newly favorited.
+  final int favorites;
+
+  /// Episodes whose listening position was added or moved on.
+  final int progress;
+
+  bool get isEmpty => subscriptions == 0 && favorites == 0 && progress == 0;
 }
 
 class _Progress {

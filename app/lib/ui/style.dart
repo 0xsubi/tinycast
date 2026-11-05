@@ -1,30 +1,28 @@
-import 'dart:ui' as ui;
-
 import 'package:flutter/cupertino.dart';
-import 'package:liquid_glass_widgets/liquid_glass_widgets.dart';
 
 import '../deck/paint_kit.dart';
-import '../deck/textures.dart';
+import '../deck/metal.dart';
 
-/// The app accent: signal orange.
+/// The app accent: signal orange, for lit lamps, glyphs and the primary cap.
 const Color accent = Color(0xFFF05A24);
 
-/// Warm off-white used for text and icons on the dark glass.
-const Color ink = Color(0xFFF2EDE6);
+/// The accent deepened enough to read as lettering on the aluminium.
+const Color accentInk = Color(0xFFC2410C);
 
-const Color stage = Color(0xFF0B0A09);
+/// Destructive actions.
+const Color danger = Color(0xFFB3261E);
 
-/// Accent-tinted glass for the one primary action on a page (Play).
-const LiquidGlassSettings accentGlass = LiquidGlassSettings(
-  glassColor: Color(0xD9F05A24),
-  thickness: 24,
-  blur: 8,
-  lightIntensity: 0.7,
-  saturation: 1.4,
-);
+/// Engraved lettering and icons on the aluminium.
+const Color ink = Color(0xFF1C1C1B);
+
+/// The body behind everything, before its texture is painted.
+const Color stage = Color(0xFFD4D4D2);
 
 Color inkAt(double alpha) => ink.withValues(alpha: alpha);
 
+/// Text in [ink] by default, engraved into the metal: a light lower lip
+/// under each letter. Its [alpha] is lifted a little so quiet text stays
+/// legible on the pale metal.
 TextStyle textStyle({
   double size = 14,
   FontWeight weight = FontWeight.w400,
@@ -38,7 +36,8 @@ TextStyle textStyle({
   fontWeight: weight,
   height: height,
   letterSpacing: spacing,
-  color: color ?? inkAt(alpha),
+  color: color ?? inkAt(0.25 + 0.75 * alpha),
+  shadows: color == null ? const [Shadow(color: Color(0x99FFFFFF), offset: Offset(0, 1))] : null,
   fontFeatures: const [FontFeature.tabularFigures()],
 );
 
@@ -80,143 +79,76 @@ class TabularText extends StatelessWidget {
   }
 }
 
-/// Square podcast or episode artwork with rounded corners, a soft shadow and
-/// a placeholder while (or if) the image cannot load.
+/// Square podcast or episode artwork with rounded corners, set into the
+/// metal like the deck's display (unless [shadow] is off), with a
+/// placeholder while (or if) the image cannot load.
 class Artwork extends StatelessWidget {
   const Artwork({super.key, required this.url, required this.size, this.radius, this.shadow = true});
 
   final String? url;
   final double size;
   final double? radius;
+
+  /// Set the artwork into a recess.
   final bool shadow;
 
   @override
   Widget build(BuildContext context) {
-    final r = BorderRadius.circular(radius ?? size * 0.12);
+    final corner = radius ?? size * 0.12;
+    final r = BorderRadius.circular(corner);
     final placeholder = DecoratedBox(
-      decoration: BoxDecoration(
+      decoration: const BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [accent.withValues(alpha: 0.55), const Color(0xFF2A1712)],
+          colors: [Color(0xFFF26B3A), Color(0xFF3A2620)],
         ),
       ),
       child: Center(
-        child: Icon(CupertinoIcons.waveform, size: size * 0.4, color: inkAt(0.7)),
+        child: Icon(CupertinoIcons.waveform, size: size * 0.4, color: white.withValues(alpha: 0.75)),
       ),
     );
     final u = url;
-    return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        borderRadius: r,
-        boxShadow: shadow
-            ? [BoxShadow(color: black.withValues(alpha: 0.45), blurRadius: size * 0.12, offset: Offset(0, size * 0.04))]
-            : null,
-      ),
-      child: ClipRRect(
-        borderRadius: r,
-        child: u == null
-            ? placeholder
-            : Image.network(
-                u,
-                width: size,
-                height: size,
-                fit: BoxFit.cover,
-                cacheWidth: (size * MediaQuery.devicePixelRatioOf(context)).round(),
-                errorBuilder: (_, _, _) => placeholder,
-                frameBuilder: (context, child, frame, sync) => sync
-                    ? child
-                    : AnimatedSwitcher(
-                        duration: const Duration(milliseconds: 250),
-                        child: frame == null ? placeholder : child,
-                      ),
-              ),
-      ),
+    final image = ClipRRect(
+      borderRadius: r,
+      child: u == null
+          ? placeholder
+          : Image.network(
+              u,
+              width: size,
+              height: size,
+              fit: BoxFit.cover,
+              cacheWidth: (size * MediaQuery.devicePixelRatioOf(context)).round(),
+              errorBuilder: (_, _, _) => placeholder,
+              frameBuilder: (context, child, frame, sync) => sync
+                  ? child
+                  : AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 250),
+                      child: frame == null ? placeholder : child,
+                    ),
+            ),
+    );
+    return SizedBox.square(
+      dimension: size,
+      child: shadow ? CustomPaint(painter: _ArtRecess(corner), child: image) : image,
     );
   }
 }
 
-/// Backdrop for the browse pages: the artwork blown up and blurred into a
-/// wash of colour when there is one, soft ambient light otherwise. Gives the
-/// glass something to refract.
-class Backdrop extends StatelessWidget {
-  const Backdrop({super.key, this.artwork});
+/// The pocket artwork sits in: a dark rim with light on its lower lip.
+class _ArtRecess extends CustomPainter {
+  const _ArtRecess(this.radius);
 
-  final String? artwork;
-
-  @override
-  Widget build(BuildContext context) {
-    final art = artwork;
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        const CustomPaint(painter: _AmbientLight()),
-        if (art != null)
-          ImageFiltered(
-            imageFilter: ui.ImageFilter.blur(sigmaX: 70, sigmaY: 70, tileMode: TileMode.mirror),
-            child: Opacity(
-              opacity: 0.75,
-              child: Image.network(
-                art,
-                fit: BoxFit.cover,
-                cacheWidth: 200,
-                errorBuilder: (_, _, _) => const SizedBox(),
-              ),
-            ),
-          ),
-        // Keep text readable over bright artwork.
-        DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [
-                stage.withValues(alpha: art == null ? 0 : 0.45),
-                stage.withValues(alpha: art == null ? 0.2 : 0.8),
-              ],
-            ),
-          ),
-        ),
-        CustomPaint(painter: _Grain()),
-      ],
-    );
-  }
-}
-
-class _AmbientLight extends CustomPainter {
-  const _AmbientLight();
+  final double radius;
 
   @override
   void paint(Canvas canvas, Size size) {
-    final all = Offset.zero & size;
-    final span = size.longestSide;
-    void light(double x, double y, double r, Color c) {
-      final centre = Offset(size.width * x, size.height * y);
-      canvas.drawRect(
-        all,
-        shaded(
-          userRadial(centre, span * r, [(0, c), (0.45, c.withValues(alpha: c.a * 0.4)), (1, c.withValues(alpha: 0))]),
-        ),
-      );
-    }
-
-    canvas.drawRect(all, fill(stage));
-    light(0.18, 0.0, 0.6, accent.withValues(alpha: 0.22));
-    light(0.95, 0.35, 0.5, rgb(0xff8f3f, 0.10));
-    light(0.1, 1.0, 0.6, rgb(0x3f7cff, 0.16));
-    light(0.9, 1.0, 0.5, rgb(0xb14fff, 0.10));
+    final r = RRect.fromRectAndRadius((Offset.zero & size).inflate(1.5), Radius.circular(radius + 1.5));
+    canvas
+      ..drawRRect(r.shift(const Offset(0, 1.2)), fill(white.withValues(alpha: 0.8)))
+      ..drawRRect(r, fill(gap));
   }
 
   @override
-  bool shouldRepaint(_AmbientLight oldDelegate) => false;
-}
-
-class _Grain extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) => canvas.drawRect(Offset.zero & size, pattern(Textures.grain, 0.03));
-
-  @override
-  bool shouldRepaint(_Grain oldDelegate) => false;
+  bool shouldRepaint(_ArtRecess oldDelegate) => oldDelegate.radius != radius;
 }
