@@ -1,7 +1,6 @@
 import 'dart:io';
 
 import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart' show SelectableText;
 
 import '../deck/paint_kit.dart' show white;
 
@@ -11,6 +10,7 @@ import '../podcast/format.dart';
 import '../podcast/models.dart';
 import '../ui/chrome.dart';
 import '../ui/metal_ui.dart';
+import '../ui/notes_text.dart';
 import '../ui/sections.dart';
 import '../ui/style.dart';
 
@@ -78,7 +78,7 @@ class EpisodePage extends StatelessWidget {
             const SizedBox(height: 34),
             Text('EPISODE NOTES', style: eyebrow()),
             const SizedBox(height: 10),
-            SelectableText(e.description!, style: textStyle(size: 15, alpha: 0.78, height: 1.6)),
+            NotesText(e.description!, style: textStyle(size: 15, alpha: 0.78, height: 1.6)),
           ];
 
     return PageFrame(

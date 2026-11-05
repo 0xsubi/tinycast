@@ -1,33 +1,13 @@
-import 'dart:async';
-import 'dart:io';
-
-import 'package:desktop_drop/desktop_drop.dart';
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
 
 import '../deck/label_layer.dart';
 import '../deck/tape_deck.dart';
 import '../playback/playback.dart';
+import '../playback/sleep_timer.dart';
 import '../player/metal_controls.dart';
 import '../ui/metal_ui.dart';
-
-const Set<String> _audioExtensions = {
-  'mp3',
-  'm4a',
-  'm4b',
-  'aac',
-  'wav',
-  'aif',
-  'aiff',
-  'flac',
-  'ogg',
-  'oga',
-  'opus',
-  'caf',
-  'wma',
-  'webm',
-};
+import '../ui/style.dart' show textStyle;
 
 /// Shown on the label before anything is threaded.
 const Episode _blank = Episode(show: 'tinycast', tag: '', title: 'No tape threaded');
@@ -43,37 +23,7 @@ class PlayerPage extends StatefulWidget {
 }
 
 class _PlayerPageState extends State<PlayerPage> {
-  bool get _desktop => Platform.isMacOS;
-
   Playback get _playback => AppScope.of(context).playback;
-
-  Future<void> _pickFile() async {
-    final file = await FilePicker.pickFile(type: FileType.audio);
-    if (file == null || !mounted) return;
-    final path = file.path;
-    await _playback.playFile(path != null ? Uri.file(path) : file.uri, file.name);
-  }
-
-  Future<void> _dropFiles(List<DropItem> files) async {
-    final file = files.where(_isAudio).firstOrNull;
-    if (file == null) return;
-    // A file dropped from outside the macOS sandbox needs security-scoped
-    // access for as long as it plays.
-    final bookmark = file.extraAppleBookmark;
-    VoidCallback? release;
-    if (bookmark != null && bookmark.isNotEmpty) {
-      await DesktopDrop.instance.startAccessingSecurityScopedResource(bookmark: bookmark);
-      release = () => unawaited(DesktopDrop.instance.stopAccessingSecurityScopedResource(bookmark: bookmark));
-    }
-    if (!mounted) return release?.call();
-    await _playback.playFile(Uri.file(file.path), file.name, release: release);
-  }
-
-  static bool _isAudio(DropItem f) {
-    if (f.mimeType?.startsWith('audio/') ?? false) return true;
-    final dot = f.name.lastIndexOf('.');
-    return dot >= 0 && _audioExtensions.contains(f.name.substring(dot + 1).toLowerCase());
-  }
 
   KeyEventResult _onKey(FocusNode node, KeyEvent e) {
     if (e is KeyUpEvent) return KeyEventResult.ignored;
@@ -105,16 +55,15 @@ class _PlayerPageState extends State<PlayerPage> {
         child: MetalDevice(
           transport: transport,
           deck: (unit, upright) => ListenableBuilder(
-            listenable: playback,
+            listenable: Listenable.merge([playback, playback.sleep]),
             builder: (context, _) => TapeDeck(
               transport: transport,
               episode: playback.current?.label ?? _blank,
-              onPickFile: _pickFile,
-              onDropFiles: _dropFiles,
               unit: unit,
               upright: upright,
               failed: playback.error != null,
-              acceptsDrops: _desktop,
+              onSleep: () => showSleepOptions(context, playback.sleep),
+              sleep: sleepReadout(playback.sleep),
               leading: canPop
                   ? ExcludeFocus(
                       child: MetalIconButton(
@@ -132,4 +81,83 @@ class _PlayerPageState extends State<PlayerPage> {
       ),
     );
   }
+}
+
+/// The sleep timer's choices, the one running latched down: a length, or the
+/// end of the episode. Turn off stops it.
+Future<void> showSleepOptions(BuildContext context, SleepTimer timer) {
+  void close() => Navigator.of(context, rootNavigator: true).pop();
+  void choose(VoidCallback set) {
+    set();
+    close();
+  }
+
+  Widget option(String label, Key key, {required bool on, required VoidCallback onPressed}) => MetalButton(
+    key: key,
+    onPressed: onPressed,
+    height: 46,
+    radius: 12,
+    padding: EdgeInsets.zero,
+    latched: on,
+    lit: on,
+    child: Text(label),
+  );
+
+  return showMetalDialog<void>(
+    context: context,
+    title: 'Sleep timer',
+    maxWidth: 360,
+    content: Padding(
+      padding: const EdgeInsets.only(top: 6),
+      child: ListenableBuilder(
+        listenable: timer,
+        builder: (context, _) {
+          final keys = [
+            for (final length in sleepLengths)
+              option(
+                sleepLabel(length),
+                Key('sleep-${length.inMinutes}'),
+                on: timer.length == length,
+                onPressed: () => choose(() => timer.start(length)),
+              ),
+            option(
+              'End of episode',
+              const Key('sleep-end'),
+              on: timer.endOfEpisode,
+              onPressed: () => choose(timer.untilEndOfEpisode),
+            ),
+          ];
+          return Column(
+            children: [
+              Text(
+                switch (sleepReadout(timer)) {
+                  null => 'Pause playback after',
+                  'END' => 'Pausing at the end of this episode',
+                  final left => 'Pausing in $left',
+                },
+                textAlign: TextAlign.center,
+                style: textStyle(size: 14, alpha: 0.65),
+              ),
+              const SizedBox(height: 16),
+              // Two to a row.
+              for (var i = 0; i < keys.length; i += 2) ...[
+                if (i > 0) const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(child: keys[i]),
+                    const SizedBox(width: 10),
+                    Expanded(child: keys[i + 1]),
+                  ],
+                ),
+              ],
+            ],
+          );
+        },
+      ),
+    ),
+    actions: [
+      if (timer.active) MetalDialogAction(label: 'Turn off', onPressed: () => choose(timer.cancel)),
+      MetalDialogAction(label: 'Close', onPressed: close),
+    ],
+  );
 }

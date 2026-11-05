@@ -98,9 +98,19 @@ const Map<String, String> _entities = {
 };
 
 /// Flattens show-notes HTML into readable plain text: paragraphs and line
-/// breaks survive, tags go, entities are decoded.
+/// breaks survive, tags go, entities are decoded. Web links are kept as
+/// `[text](url)`, or the bare url when that is their text; see [noteRuns].
 String plainText(String html) {
   var s = html
+      .replaceAllMapped(_anchor, (m) {
+        final href = m.group(1)!.trim();
+        final text = m.group(2)!.replaceAll(RegExp(r'<[^>]+>'), '').replaceAll(RegExp(r'\s+'), ' ').trim();
+        if (!href.startsWith(RegExp('https?://', caseSensitive: false))) return text;
+        // Brackets would end the link early.
+        final url = href.replaceAll('(', '%28').replaceAll(')', '%29').replaceAll(' ', '%20');
+        if (text.isEmpty || text == href) return url;
+        return '[${text.replaceAll('[', '(').replaceAll(']', ')')}]($url)';
+      })
       .replaceAll(RegExp(r'<\s*br\s*/?\s*>', caseSensitive: false), '\n')
       .replaceAll(RegExp(r'<\s*/\s*(p|div|h[1-6]|ul|ol)\s*>', caseSensitive: false), '\n\n')
       .replaceAll(RegExp(r'<\s*li[^>]*>', caseSensitive: false), '\n• ')
@@ -117,4 +127,61 @@ String plainText(String html) {
       .join('\n')
       .replaceAll(RegExp(r'\n{3,}'), '\n\n')
       .trim();
+}
+
+final RegExp _anchor = RegExp(
+  r"""<a\s[^>]*?href\s*=\s*["']([^"']*)["'][^>]*>(.*?)<\s*/\s*a\s*>""",
+  caseSensitive: false,
+  dotAll: true,
+);
+
+/// A stretch of show notes: plain text, or text linking to [link].
+typedef NoteRun = ({String text, Uri? link});
+
+final RegExp _noteLink = RegExp(r'\[([^\]\n]+)\]\((https?://[^)\s]+)\)|https?://[^\s<>"]+', caseSensitive: false);
+
+/// Splits show notes from [plainText] into plain runs and links: each
+/// `[text](url)`, and every bare web address.
+List<NoteRun> noteRuns(String notes) {
+  final runs = <NoteRun>[];
+  var at = 0;
+  void plain(int end) {
+    if (end > at) runs.add((text: notes.substring(at, end), link: null));
+  }
+
+  for (final m in _noteLink.allMatches(notes)) {
+    if (m.start < at) continue;
+    final String text;
+    final String url;
+    var end = m.end;
+    if (m.group(1) case final label?) {
+      text = label;
+      url = m.group(2)!;
+    } else {
+      url = _trimUrl(m.group(0)!);
+      text = url;
+      end = m.start + url.length;
+    }
+    plain(m.start);
+    runs.add((text: text, link: Uri.tryParse(url)));
+    at = end;
+  }
+  plain(notes.length);
+  return runs;
+}
+
+/// Show notes with their links reduced to their text, for a preview.
+String noteText(String notes) => noteRuns(notes).map((r) => r.text).join();
+
+/// A bare address less the punctuation of the sentence around it: a closing
+/// bracket stays only if the address opened one.
+String _trimUrl(String url) {
+  var u = url;
+  while (u.isNotEmpty) {
+    final last = u[u.length - 1];
+    final unbalanced = last == ')' && '('.allMatches(u).length < ')'.allMatches(u).length;
+    if (!'.,;:!?\'"'.contains(last) && !unbalanced) break;
+    u = u.substring(0, u.length - 1);
+  }
+  return u;
 }

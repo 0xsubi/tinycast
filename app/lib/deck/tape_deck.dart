@@ -1,6 +1,5 @@
 import 'dart:math' as math;
 
-import 'package:desktop_drop/desktop_drop.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/widgets.dart';
@@ -26,7 +25,6 @@ const double _windRate = 3;
 /// Motor spin-up / spin-down rate.
 const double _motorRate = 5;
 
-const double _hintEase = 0.045; // opacity 150ms
 const double _lampEase = 0.06;
 const double _buttonEase = 0.025;
 
@@ -92,19 +90,16 @@ class TapeDeck extends StatefulWidget {
     super.key,
     required this.transport,
     required this.episode,
-    required this.onPickFile,
-    required this.onDropFiles,
     this.unit = 0.5,
     this.upright = false,
     this.failed = false,
     this.leading,
-    this.acceptsDrops = false,
+    this.onSleep,
+    this.sleep,
   });
 
   final Transport transport;
   final Episode episode;
-  final VoidCallback onPickFile;
-  final ValueChanged<List<DropItem>> onDropFiles;
 
   /// Logical pixels per view-box unit for the band and the strip.
   final double unit;
@@ -118,7 +113,11 @@ class TapeDeck extends StatefulWidget {
   /// A button set into the left of the band, before the wordmark.
   final Widget? leading;
 
-  final bool acceptsDrops;
+  /// The sleep button was pressed.
+  final VoidCallback? onSleep;
+
+  /// The sleep timer's readout under its button ("14:32", "END"); null when off.
+  final String? sleep;
 
   @override
   State<TapeDeck> createState() => _TapeDeckState();
@@ -135,14 +134,12 @@ class _TapeDeckState extends State<TapeDeck> with SingleTickerProviderStateMixin
   /// The deck animates until at least this [DeckFrame.clock] time.
   double _awakeUntil = 0;
 
-  /// The episode's title is too long for the label and scrolls.
-  late bool _scrolls;
+  /// The episode's title is too long for the label and scrolls. Depends on
+  /// the label's width, so it is settled at each layout.
+  bool _scrolls = false;
 
-  final Set<int> _labelPointers = {};
-  final Set<int> _loadPointers = {};
-  bool _labelHover = false;
-  bool _loadHover = false;
-  bool _dragOver = false;
+  final Set<int> _sleepPointers = {};
+  bool _sleepHover = false;
 
   Transport get _transport => widget.transport;
 
@@ -152,7 +149,6 @@ class _TapeDeckState extends State<TapeDeck> with SingleTickerProviderStateMixin
     final t = _transport;
     _display = t.time;
     _frame = DeckFrame(clamp01(t.time / math.max(1, t.duration)))..lamp = t.playing ? 1 : 0;
-    _scrolls = titleScrolls(widget.episode.title);
     _ticker = createTicker(_onTick);
     _listen(t);
     _wake();
@@ -165,10 +161,7 @@ class _TapeDeckState extends State<TapeDeck> with SingleTickerProviderStateMixin
       _unlisten(oldWidget.transport);
       _listen(widget.transport);
     }
-    if (oldWidget.episode.title != widget.episode.title) {
-      _frame.titleSince = _frame.clock;
-      _scrolls = titleScrolls(widget.episode.title);
-    }
+    if (oldWidget.episode.title != widget.episode.title) _frame.titleSince = _frame.clock;
     _wake();
   }
 
@@ -247,15 +240,10 @@ class _TapeDeckState extends State<TapeDeck> with SingleTickerProviderStateMixin
     }
     if (reels != (f.angle[Side.l], f.angle[Side.r], f.radius[Side.l], f.radius[Side.r])) f.spin.fire();
 
-    final hint = f.labelHint;
-    final hintTarget = _labelHover ? 1.0 : 0.55;
-    f.labelHint = approach(f.labelHint, hintTarget, ease(_hintEase));
-    if (f.labelHint != hint) f.hint.fire();
-
-    final load = f.loadTravel;
-    final loadTarget = _loadPointers.isNotEmpty ? 1.0 : 0.0;
-    f.loadTravel = approach(f.loadTravel, loadTarget, ease(_buttonEase));
-    if (f.loadTravel != load) f.strip.fire();
+    final sleep = f.sleepTravel;
+    final sleepTarget = _sleepPointers.isNotEmpty ? 1.0 : 0.0;
+    f.sleepTravel = approach(f.sleepTravel, sleepTarget, ease(_buttonEase));
+    if (f.sleepTravel != sleep) f.strip.fire();
 
     // The display: the state of the tape and the elapsed time.
     final display = (f.headline, f.readout, f.lamp);
@@ -278,8 +266,7 @@ class _TapeDeckState extends State<TapeDeck> with SingleTickerProviderStateMixin
         _display == actual &&
         _motor == running &&
         f.lamp == running &&
-        f.labelHint == hintTarget &&
-        f.loadTravel == loadTarget &&
+        f.sleepTravel == sleepTarget &&
         !_scrolls &&
         f.clock >= _awakeUntil;
     if (resting) {
@@ -292,44 +279,36 @@ class _TapeDeckState extends State<TapeDeck> with SingleTickerProviderStateMixin
 
   DeckLayout get _layout => DeckLayout(context.size!, widget.unit, upright: widget.upright);
 
-  bool _onLabel(Offset local) => hitLabel(_layout.toStrip(local), _layout.width);
-  bool _onLoad(Offset local) => hitLoad(_layout.toStrip(local));
+  bool _onSleep(Offset local) => widget.onSleep != null && hitSleep(_layout.toStrip(local), _layout.width);
 
   void _onDown(PointerDownEvent e) {
-    if (_onLabel(e.localPosition)) _labelPointers.add(e.pointer);
-    if (_onLoad(e.localPosition)) _loadPointers.add(e.pointer);
+    if (_onSleep(e.localPosition)) _sleepPointers.add(e.pointer);
     _wake();
   }
 
   void _onUp(PointerUpEvent e) {
-    // A click: pressed and released on the label or the load button.
-    final label = _labelPointers.remove(e.pointer) && _onLabel(e.localPosition);
-    final load = _loadPointers.remove(e.pointer) && _onLoad(e.localPosition);
+    // A click: pressed and released on the button.
+    final sleep = _sleepPointers.remove(e.pointer) && _onSleep(e.localPosition);
     _wake();
-    if (label || load) widget.onPickFile();
+    if (sleep) widget.onSleep?.call();
   }
 
   void _onCancel(PointerCancelEvent e) {
-    _labelPointers.remove(e.pointer);
-    _loadPointers.remove(e.pointer);
+    _sleepPointers.remove(e.pointer);
     _wake();
   }
 
   void _onHover(PointerHoverEvent e) {
-    final label = _onLabel(e.localPosition);
-    final load = _onLoad(e.localPosition);
-    if (label != _labelHover || load != _loadHover) {
-      setState(() {
-        _labelHover = label;
-        _loadHover = load;
-      });
+    final sleep = _onSleep(e.localPosition);
+    if (sleep != _sleepHover) {
+      setState(() => _sleepHover = sleep);
       _wake();
     }
   }
 
   void _onExit(PointerExitEvent e) {
-    if (_labelHover || _loadHover) {
-      setState(() => _labelHover = _loadHover = false);
+    if (_sleepHover) {
+      setState(() => _sleepHover = false);
       _wake();
     }
   }
@@ -340,6 +319,12 @@ class _TapeDeckState extends State<TapeDeck> with SingleTickerProviderStateMixin
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, constraints) {
       final layout = DeckLayout(constraints.biggest, widget.unit, upright: widget.upright);
+      final scrolls = titleScrolls(widget.episode, layout.width);
+      if (scrolls != _scrolls) {
+        _scrolls = scrolls;
+        // A title that starts scrolling needs frames; the ticker may be resting.
+        if (scrolls) WidgetsBinding.instance.addPostFrameCallback((_) => mounted ? _wake() : null);
+      }
       Widget layer(CustomPainter painter, {bool still = false}) => Positioned.fill(
         child: RepaintBoundary(
           child: CustomPaint(painter: painter, isComplex: still, willChange: !still),
@@ -353,9 +338,27 @@ class _TapeDeckState extends State<TapeDeck> with SingleTickerProviderStateMixin
       final band = layout.band;
       final strip = layout.strip;
 
+      // The label's artwork, in logical pixels, turned with the paper about
+      // its centre.
+      final art = widget.episode.artwork;
+      final label = labelRect(layout.width);
+      final labelBox = Rect.fromLTWH(
+        strip.offset.dx + label.left * widget.unit,
+        strip.offset.dy + label.top * widget.unit,
+        label.width * widget.unit,
+        label.height * widget.unit,
+      );
+      final art0 = artRect(label);
+      final artBox = Rect.fromLTWH(
+        (art0.left - label.left) * widget.unit,
+        (art0.top - label.top) * widget.unit,
+        art0.width * widget.unit,
+        art0.height * widget.unit,
+      );
+
       // The deck is drawn onto the device's aluminium; see the player's body.
-      Widget deck = MouseRegion(
-        cursor: _labelHover || _loadHover ? SystemMouseCursors.click : MouseCursor.defer,
+      return MouseRegion(
+        cursor: _sleepHover ? SystemMouseCursors.click : MouseCursor.defer,
         onHover: _onHover,
         onExit: _onExit,
         child: Listener(
@@ -378,15 +381,31 @@ class _TapeDeckState extends State<TapeDeck> with SingleTickerProviderStateMixin
               ),
               layer(BandPainter(band, inset: inset), still: true),
               layer(DisplayPainter(band, _frame, widget.episode)),
-              layer(StripPainter(strip, _frame)),
+              layer(StripPainter(strip, _frame, sleep: widget.onSleep == null ? null : widget.sleep)),
               layer(LabelPainter(strip, transport: _transport, episode: widget.episode)),
-              layer(LabelTitlePainter(strip, _frame, widget.episode)),
-              layer(LabelHintPainter(strip, _frame)),
-              Positioned.fill(
-                child: IgnorePointer(
-                  child: CustomPaint(painter: _DropRim(dropping: _dragOver)),
+              if (art != null)
+                Positioned.fromRect(
+                  rect: labelBox,
+                  child: IgnorePointer(
+                    child: Transform.rotate(
+                      angle: rad(labelTilt),
+                      child: Stack(
+                        children: [
+                          Positioned.fromRect(
+                            rect: artBox,
+                            child: Artwork(
+                              url: art,
+                              size: artBox.width,
+                              radius: artRadius * widget.unit,
+                              shadow: false,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
                 ),
-              ),
+              layer(LabelTitlePainter(strip, _frame, widget.episode)),
               if (widget.leading != null)
                 Positioned(
                   left: 16,
@@ -399,19 +418,6 @@ class _TapeDeckState extends State<TapeDeck> with SingleTickerProviderStateMixin
           ),
         ),
       );
-
-      if (widget.acceptsDrops) {
-        deck = DropTarget(
-          onDragEntered: (_) => setState(() => _dragOver = true),
-          onDragExited: (_) => setState(() => _dragOver = false),
-          onDragDone: (d) {
-            setState(() => _dragOver = false);
-            widget.onDropFiles(d.files);
-          },
-          child: deck,
-        );
-      }
-      return deck;
     },
   );
 }
@@ -420,23 +426,6 @@ class _TapeDeckState extends State<TapeDeck> with SingleTickerProviderStateMixin
 /// differently from CSS (sigma = blur / 2), so convert.
 BoxShadow cssShadow(Color color, {double y = 0, required double blur}) =>
     BoxShadow(color: color, offset: Offset(0, y), blurRadius: (blur / 2 - 0.5) / 0.57735);
-
-/// Accent outline while a file is dragged over the deck.
-class _DropRim extends CustomPainter {
-  const _DropRim({required this.dropping});
-
-  final bool dropping;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (!dropping) return;
-    final r = RRect.fromRectAndRadius((Offset.zero & size).deflate(6), const Radius.circular(18));
-    canvas.drawRRect(r, stroke(accent.withValues(alpha: 0.8), 3));
-  }
-
-  @override
-  bool shouldRepaint(_DropRim oldDelegate) => oldDelegate.dropping != dropping;
-}
 
 /// TP-7-style clock: hours.minutes.seconds, "0.09.24".
 String displayTime(double seconds) {

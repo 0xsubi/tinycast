@@ -1,4 +1,6 @@
+import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/cupertino.dart';
@@ -62,6 +64,28 @@ class LibraryPage extends StatelessWidget {
                     count: library.downloaded.length,
                     onTap: () => push(const DownloadsPage()),
                   ),
+                  const SizedBox(height: 18),
+                  Padding(
+                    padding: const EdgeInsets.only(left: 4, bottom: 10),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text('ANOTHER DEVICE', style: eyebrow()),
+                    ),
+                  ),
+                  _MenuRow(
+                    key: const Key('export-library'),
+                    icon: CupertinoIcons.square_arrow_up,
+                    label: 'Export library',
+                    count: 0,
+                    onTap: () => exportLibrary(context),
+                  ),
+                  _MenuRow(
+                    key: const Key('import-library'),
+                    icon: CupertinoIcons.square_arrow_down,
+                    label: 'Import library',
+                    count: 0,
+                    onTap: () => importLibrary(context),
+                  ),
                 ],
               ),
             ),
@@ -102,6 +126,76 @@ class _MenuRow extends StatelessWidget {
     ),
   );
 }
+
+/// Saves the library's shows, favorites and listening positions to a file
+/// the user chooses, to import on another device.
+Future<void> exportLibrary(BuildContext context) async {
+  final library = AppScope.of(context).library;
+  final json = const JsonEncoder.withIndent('  ').convert(library.export());
+  final day = DateTime.now().toIso8601String().substring(0, 10);
+  try {
+    await FilePicker.saveFile(
+      dialogTitle: 'Export library',
+      fileName: 'tinycast-library-$day.json',
+      bytes: Uint8List.fromList(utf8.encode(json)),
+      mimeType: 'application/json',
+      type: FileType.custom,
+      allowedExtensions: const ['json'],
+    );
+  } on Object catch (e) {
+    if (context.mounted) await _tell(context, 'Could not export', '$e');
+  }
+}
+
+/// Merges a library exported from another device into this one, then says
+/// what it brought in.
+Future<void> importLibrary(BuildContext context) async {
+  final library = AppScope.of(context).library;
+  final file = await FilePicker.pickFile(
+    dialogTitle: 'Import library',
+    type: FileType.custom,
+    allowedExtensions: const ['json'],
+  );
+  if (file == null) return;
+  String message;
+  try {
+    final text = utf8.decode(await file.readAsBytes());
+    final Object? data;
+    try {
+      data = jsonDecode(text);
+    } on FormatException {
+      throw const FormatException('Not a tinycast library file');
+    }
+    message = importSummary(await library.import(data));
+  } on FormatException catch (e) {
+    message = e.message;
+  } on Object catch (e) {
+    message = 'Could not read that file: $e';
+  }
+  if (context.mounted) await _tell(context, 'Import library', message);
+}
+
+/// "Added 2 shows, 1 favorite and 5 listening positions."
+String importSummary(LibraryImport result) {
+  if (result.isEmpty) return 'Already up to date: this device has everything in that file.';
+  String count(int n, String one, String many) => '$n ${n == 1 ? one : many}';
+  final parts = [
+    if (result.subscriptions > 0) count(result.subscriptions, 'show', 'shows'),
+    if (result.favorites > 0) count(result.favorites, 'favorite', 'favorites'),
+    if (result.progress > 0) count(result.progress, 'listening position', 'listening positions'),
+  ];
+  final list = parts.length == 1 ? parts.single : '${parts.sublist(0, parts.length - 1).join(', ')} and ${parts.last}';
+  return 'Added $list.';
+}
+
+Future<void> _tell(BuildContext context, String title, String message) => showMetalDialog<void>(
+  context: context,
+  title: title,
+  message: message,
+  actions: [
+    MetalDialogAction(label: 'OK', isPrimary: true, onPressed: () => Navigator.of(context, rootNavigator: true).pop()),
+  ],
+);
 
 /// The shows the user subscribes to, as a grid.
 class LibraryPodcastsPage extends StatelessWidget {

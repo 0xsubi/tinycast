@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tinycast/deck/geometry.dart';
+import 'package:tinycast/deck/display_layer.dart' show hitSleep;
 import 'package:tinycast/deck/label_layer.dart';
 import 'package:tinycast/deck/tape_deck.dart';
 import 'package:tinycast/deck/textures.dart';
@@ -10,8 +11,9 @@ import 'package:tinycast/library/library.dart';
 import 'package:tinycast/main.dart';
 import 'package:tinycast/pages/player_page.dart';
 import 'package:tinycast/playback/playback.dart';
+import 'package:tinycast/playback/sleep_timer.dart';
 import 'package:tinycast/player/metal_controls.dart';
-import 'package:tinycast/ui/style.dart' show TabularText, accent;
+import 'package:tinycast/ui/style.dart' show Artwork, TabularText, accent;
 
 import 'test_library.dart';
 
@@ -25,7 +27,6 @@ const _unit = 0.5;
 Future<Offset Function(double, double)> _pumpDeck(
   WidgetTester tester,
   Transport transport, {
-  VoidCallback? onPickFile,
   Episode episode = _episode,
 }) async {
   await tester.pumpWidget(
@@ -33,13 +34,7 @@ Future<Offset Function(double, double)> _pumpDeck(
       home: Center(
         child: SizedBox.fromSize(
           size: _deckSize,
-          child: TapeDeck(
-            transport: transport,
-            episode: episode,
-            onPickFile: onPickFile ?? () {},
-            onDropFiles: (_) {},
-            unit: _unit,
-          ),
+          child: TapeDeck(transport: transport, episode: episode, unit: _unit),
         ),
       ),
     ),
@@ -206,25 +201,145 @@ void main() {
     expect(width('narrow'), width('wide'));
   });
 
-  testWidgets('the load button asks for a file', (tester) async {
-    var picks = 0;
-    final at = await _pumpDeck(tester, Transport(600), onPickFile: () => picks++);
+  testWidgets('the label carries the episode artwork, or none', (tester) async {
+    await _pumpDeck(tester, Transport(600));
+    expect(find.byType(Artwork), findsNothing);
 
-    await tester.tapAt(at(150, 846));
-    expect(picks, 1);
+    const art = Episode(show: 'Test', tag: 'EP. 001', title: 'Episode', artwork: 'https://example.com/a.jpg');
+    await _pumpDeck(tester, Transport(600), episode: art);
+    final artwork = find.byType(Artwork);
+    expect(artwork, findsOneWidget);
+    expect(tester.widget<Artwork>(artwork).url, art.artwork);
+    // On the left end of the label, the type set after it.
+    final strip = const DeckLayout(_deckSize, _unit);
+    final label = labelRect(strip.width);
+    final at = tester.getCenter(artwork) - tester.getTopLeft(find.byType(TapeDeck)) - strip.strip.offset;
+    expect(at.dx / _unit, closeTo(artRect(label).center.dx, 2));
+    expect(at.dx / _unit, lessThan(label.left + label.height));
+    expect(titleScrolls(art, strip.width), isFalse);
   });
 
-  testWidgets('clicking the label asks for a file', (tester) async {
-    var picks = 0;
-    final at = await _pumpDeck(tester, Transport(600), onPickFile: () => picks++);
+  /// Where the player's sleep button is, on screen.
+  Offset sleepButton(WidgetTester tester) {
+    final deck = tester.widget<TapeDeck>(find.byType(TapeDeck));
+    final rect = tester.getRect(find.byType(TapeDeck));
+    final layout = DeckLayout(rect.size, deck.unit, upright: deck.upright);
+    return rect.topLeft + layout.strip.offset + Offset(layout.width - 150, 846) * deck.unit;
+  }
 
-    await tester.tapAt(at(1000, 846));
-    expect(picks, 1);
-    // Pressing on the label and releasing elsewhere is not a click.
-    final gesture = await tester.startGesture(at(1000, 846));
-    await gesture.moveTo(at(1000, 500));
-    await gesture.up();
-    expect(picks, 1);
+  /// Lets a dialog open or close. The deck animates while the tape runs, so
+  /// it never settles.
+  Future<void> settle(WidgetTester tester) async {
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+  }
+
+  testWidgets('the sleep button sets a timer that pauses the tape', (tester) async {
+    final transport = Transport(3600, startAt: 100);
+    await tester.pumpWidget(_player(transport));
+    await tester.pump();
+    final sleep = tester
+        .state<State>(find.byType(PlayerPage))
+        .context
+        .findAncestorWidgetOfExactType<AppScope>()!
+        .playback
+        .sleep;
+    transport.play();
+    expect(tester.widget<TapeDeck>(find.byType(TapeDeck)).sleep, isNull);
+
+    await tester.tapAt(sleepButton(tester));
+    await settle(tester);
+    expect(find.text('Sleep timer'), findsOneWidget);
+    for (final label in ['5 min', '10 min', '15 min', '30 min', '1 hour', 'End of episode']) {
+      expect(find.text(label), findsOneWidget, reason: label);
+    }
+    expect(find.text('Turn off'), findsNothing);
+
+    await tester.tap(find.byKey(const Key('sleep-5')));
+    await settle(tester);
+    expect(find.text('Sleep timer'), findsNothing);
+    expect(sleep.length, const Duration(minutes: 5));
+    // The readout under the button counts down from 5:00.
+    expect(tester.widget<TapeDeck>(find.byType(TapeDeck)).sleep, anyOf('5:00', '4:59'));
+
+    await tester.pump(const Duration(minutes: 4, seconds: 50));
+    expect(transport.playing, isTrue);
+    await tester.pump(const Duration(seconds: 10));
+    expect(transport.playing, isFalse);
+    expect(sleep.active, isFalse);
+    await tester.pump();
+    expect(tester.widget<TapeDeck>(find.byType(TapeDeck)).sleep, isNull);
+  });
+
+  testWidgets('the sleep timer can wait for the end of the episode, or be turned off', (tester) async {
+    final transport = Transport(600, startAt: 590);
+    await tester.pumpWidget(_player(transport));
+    await tester.pump();
+    final sleep = tester
+        .state<State>(find.byType(PlayerPage))
+        .context
+        .findAncestorWidgetOfExactType<AppScope>()!
+        .playback
+        .sleep;
+
+    await tester.tapAt(sleepButton(tester));
+    await settle(tester);
+    await tester.tap(find.byKey(const Key('sleep-end')));
+    await settle(tester);
+    expect(sleep.endOfEpisode, isTrue);
+    expect(tester.widget<TapeDeck>(find.byType(TapeDeck)).sleep, 'END');
+
+    // Pausing part-way keeps it set…
+    transport.play();
+    transport.pause();
+    expect(sleep.active, isTrue);
+    // …and it goes off by itself once the tape stops at its end.
+    transport.seek(599.5);
+    transport.play();
+    // The simulated clock runs on wall time.
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 700)));
+    transport.tick();
+    expect(transport.playing, isFalse);
+    expect(sleep.active, isFalse);
+
+    // Turn off stops a countdown.
+    sleep.start(const Duration(minutes: 30));
+    await tester.pump();
+    await tester.tapAt(sleepButton(tester));
+    await settle(tester);
+    expect(find.textContaining('Pausing in'), findsOneWidget);
+    await tester.tap(find.text('Turn off'));
+    await settle(tester);
+    expect(sleep.active, isFalse);
+  });
+
+  test('the label stays centred and clear of the sleep button on any strip', () {
+    // The strip is never narrower than 1000 view-box units: the device's
+    // unit is at most its width / 1000.
+    for (var width = 1000.0; width <= 2600; width += 50) {
+      final label = labelRect(width);
+      final mid = label.center.dy;
+      expect(label.width, greaterThanOrEqualTo(550), reason: '$width');
+      expect(label.center.dx, closeTo(width / 2, 1e-9), reason: '$width');
+      for (var x = label.left; x <= label.right; x += 5) {
+        expect(hitSleep(Offset(x, mid), width), isFalse, reason: '$width at $x');
+      }
+      // The button is where it should be.
+      expect(hitSleep(Offset(width - 150, 846), width), isTrue);
+    }
+    expect(labelRect(2000).width, 700);
+  });
+
+  test('the sleep readout', () {
+    final t = SleepTimer(Transport(600));
+    expect(sleepReadout(t), isNull);
+    t.untilEndOfEpisode();
+    expect(sleepReadout(t), 'END');
+    t.start(const Duration(hours: 1));
+    expect(sleepReadout(t), anyOf('1:00:00', '59:59'));
+    t.dispose();
+    expect(sleepLabel(const Duration(minutes: 15)), '15 min');
+    expect(sleepLabel(const Duration(hours: 1)), '1 hour');
   });
 
   testWidgets('the simulated clock runs while playing', (tester) async {

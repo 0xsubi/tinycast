@@ -11,14 +11,15 @@ import '../library/downloads.dart';
 import '../library/library.dart';
 import '../podcast/directory.dart';
 import '../podcast/models.dart';
+import 'sleep_timer.dart';
 
 /// What is threaded on the deck.
 class NowPlaying {
-  const NowPlaying({required this.label, this.artwork, this.podcast, this.episode});
+  const NowPlaying({required this.label, this.podcast, this.episode});
 
-  /// The paper label's lines.
+  /// The paper label's lines and artwork.
   final Episode label;
-  final String? artwork;
+  String? get artwork => label.artwork;
   final Podcast? podcast;
   final PodcastEpisode? episode;
 }
@@ -47,6 +48,9 @@ class Playback extends ChangeNotifier {
 
   final Transport transport;
   final Library? library;
+
+  /// Pauses [transport] after a while; kept here so it runs with the deck closed.
+  late final SleepTimer sleep = SleepTimer(transport);
   NowPlaying? current;
   String? error;
 
@@ -59,9 +63,6 @@ class Playback extends ChangeNotifier {
   /// Bumped by every load, so a slow load never replaces a newer one.
   int _loads = 0;
 
-  /// Gives up whatever access the current source needed (a sandboxed file).
-  VoidCallback? _release;
-
   /// Thread [episode] and start playing — from [file] when it has been
   /// downloaded, streamed otherwise. If it is already on the deck, just resume.
   Future<void> playEpisode(Podcast podcast, PodcastEpisode episode, {String? file}) async {
@@ -72,10 +73,13 @@ class Playback extends ChangeNotifier {
     final load = ++_loads;
     _saveProgress();
     _threaded = false;
-    _swapRelease(null);
     current = NowPlaying(
-      label: Episode(show: podcast.title, tag: _tag(episode), title: episode.title),
-      artwork: episode.artwork ?? podcast.artwork,
+      label: Episode(
+        show: podcast.title,
+        tag: _tag(episode),
+        title: episode.title,
+        artwork: episode.artwork ?? podcast.artwork,
+      ),
       podcast: podcast,
       episode: episode,
     );
@@ -99,34 +103,6 @@ class Playback extends ChangeNotifier {
       file != null ? 'Could not play the downloaded file' : 'Could not stream this episode',
       startAt: resume,
     );
-  }
-
-  /// Thread the local audio file at [uri] and start playing. [release] is
-  /// called once the file is no longer needed.
-  Future<void> playFile(Uri uri, String name, {VoidCallback? release}) async {
-    final load = ++_loads;
-    _saveProgress();
-    _threaded = false;
-    _swapRelease(release);
-    error = null;
-    notifyListeners();
-    final title = name.replaceFirst(RegExp(r'\.[^.]+$'), '');
-    final source = AudioSource.uri(
-      uri,
-      tag: MediaItem(id: uri.toString(), title: title, album: 'Local File'),
-    );
-    if (await _thread(load, source, null)) {
-      current = NowPlaying(
-        label: Episode(show: 'Local File', tag: 'EP. 001', title: title),
-      );
-      notifyListeners();
-    }
-  }
-
-  void _swapRelease(VoidCallback? next) {
-    final previous = _release;
-    _release = next;
-    previous?.call();
   }
 
   Future<bool> _thread(int load, AudioSource source, String? failure, {double startAt = 0}) async {
@@ -171,10 +147,10 @@ class Playback extends ChangeNotifier {
   @override
   void dispose() {
     _saveProgress();
+    sleep.dispose();
     _saver?.cancel();
     _lifecycle?.dispose();
     transport.removeListener(_onTransport);
-    _swapRelease(null);
     transport.dispose();
     super.dispose();
   }

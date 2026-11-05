@@ -117,6 +117,41 @@ void main() {
     expect(plainText('<p>One&nbsp;two</p><ul><li>a</li><li>b &#8212; c</li></ul>'), 'One two\n\n• a\n• b — c');
   });
 
+  test('keeps show-note links', () {
+    expect(
+      plainText('<p>Thanks to <a href="https://ex.com/sponsor?a=1&amp;b=2">our <b>sponsor</b></a>.</p>'),
+      'Thanks to [our sponsor](https://ex.com/sponsor?a=1&b=2).',
+    );
+    // A link whose text is its address stays bare; other schemes keep just their text.
+    expect(plainText('<a href="https://ex.com">https://ex.com</a>'), 'https://ex.com');
+    expect(plainText("<a href='mailto:hi@ex.com'>Write in</a>"), 'Write in');
+    // Brackets in the address are escaped so the link survives.
+    expect(
+      plainText('<a href="https://en.wikipedia.org/wiki/Java_(island)">Java</a>'),
+      '[Java](https://en.wikipedia.org/wiki/Java_%28island%29)',
+    );
+  });
+
+  test('splits show notes into text and links', () {
+    final runs = noteRuns('See [the site](https://ex.com/a) or https://ex.com/b, (also https://ex.com/c).');
+    expect(
+      [for (final r in runs) (r.text, r.link?.toString())],
+      [
+        ('See ', null),
+        ('the site', 'https://ex.com/a'),
+        (' or ', null),
+        ('https://ex.com/b', 'https://ex.com/b'),
+        (', (also ', null),
+        ('https://ex.com/c', 'https://ex.com/c'),
+        (').', null),
+      ],
+    );
+    // A bracket that belongs to the address stays.
+    expect(noteRuns('https://ex.com/Java_(island)').single.link.toString(), 'https://ex.com/Java_(island)');
+    expect(noteText('Hi [there](https://ex.com)!'), 'Hi there!');
+    expect(noteRuns('No links here.').single, (text: 'No links here.', link: null));
+  });
+
   test('formats lengths, dates and sizes', () {
     expect(formatLength(6626), '1 hr 50 min');
     expect(formatLength(3600), '1 hr');

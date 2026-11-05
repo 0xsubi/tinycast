@@ -133,12 +133,22 @@ void paintFace(Canvas canvas, RRect face, {Color? base, double travel = 0}) {
 /// A plate fitted into the body: a lighter, separately finished part in a
 /// thin dark seam. Tappable plates sink a little while held.
 class MetalPlate extends StatefulWidget {
-  const MetalPlate({super.key, required this.child, this.padding = EdgeInsets.zero, this.radius = 18, this.onTap});
+  const MetalPlate({
+    super.key,
+    required this.child,
+    this.padding = EdgeInsets.zero,
+    this.radius = 18,
+    this.onTap,
+    this.rim,
+  });
 
   final Widget child;
   final EdgeInsetsGeometry padding;
   final double radius;
   final VoidCallback? onTap;
+
+  /// A coloured edge round the plate's face; none by default.
+  final Color? rim;
 
   @override
   State<MetalPlate> createState() => _MetalPlateState();
@@ -154,7 +164,7 @@ class _MetalPlateState extends State<MetalPlate> {
   @override
   Widget build(BuildContext context) {
     final plate = CustomPaint(
-      painter: _PlatePainter(radius: widget.radius, travel: _held ? 1 : 0),
+      painter: _PlatePainter(radius: widget.radius, travel: _held ? 1 : 0, rim: widget.rim),
       child: Padding(padding: widget.padding, child: widget.child),
     );
     final onTap = widget.onTap;
@@ -171,20 +181,24 @@ class _MetalPlateState extends State<MetalPlate> {
 }
 
 class _PlatePainter extends CustomPainter {
-  const _PlatePainter({required this.radius, required this.travel});
+  const _PlatePainter({required this.radius, required this.travel, this.rim});
 
   final double radius;
   final double travel;
+  final Color? rim;
 
   @override
   void paint(Canvas canvas, Size size) {
     final seam = RRect.fromRectAndRadius(Offset.zero & size, Radius.circular(radius));
     paintRecess(canvas, seam, lip: 1);
     paintFace(canvas, seam.deflate(1.5), travel: travel);
+    final rim = this.rim;
+    if (rim != null) canvas.drawRRect(seam.deflate(2.5), stroke(rim, 2));
   }
 
   @override
-  bool shouldRepaint(_PlatePainter oldDelegate) => oldDelegate.radius != radius || oldDelegate.travel != travel;
+  bool shouldRepaint(_PlatePainter oldDelegate) =>
+      oldDelegate.radius != radius || oldDelegate.travel != travel || oldDelegate.rim != rim;
 }
 
 /* ------------------------------------------------------------- buttons -- */

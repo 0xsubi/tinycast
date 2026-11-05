@@ -188,7 +188,7 @@ class _Header extends StatelessWidget {
         _SubscribeButton(podcast: podcast),
         if (f?.description case final description?) ...[
           const SizedBox(height: 16),
-          ExpandableText(description, maxLines: 4),
+          ExpandableText(noteText(description), maxLines: 4),
         ],
       ],
     );
@@ -318,7 +318,7 @@ class EpisodeCard extends StatelessWidget {
                   const SizedBox(height: 4),
                   Text(
                     // Show notes run long; the card only has room for a taste.
-                    episode.description!.replaceAll(RegExp(r'\s+'), ' '),
+                    noteText(episode.description!).replaceAll(RegExp(r'\s+'), ' '),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: textStyle(size: 13, alpha: 0.55),

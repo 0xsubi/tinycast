@@ -10,12 +10,17 @@ import 'paint_kit.dart';
 /// The OLED window, at the right-hand end of the top band.
 Rect _oled(double width) => Rect.fromLTWH(width - 444, 16, 388, 86);
 
-/// The round load button on the label strip.
-const Offset _loadCentre = Offset(150, 846);
-const double _loadR = 44;
+/// The round sleep button at the right-hand end of the label strip, this far
+/// in from the end.
+const double _buttonInset = 150;
+const double _buttonY = 846;
+const double _buttonR = 44;
 
-/// Whether view-box point [p] is on the load button.
-bool hitLoad(Offset p) => (p - _loadCentre).distance <= _loadR + 6;
+/// The sleep button, on a strip [width] wide.
+Offset _sleepCentre(double width) => Offset(width - _buttonInset, _buttonY);
+
+/// Whether view-box point [p] is on the sleep button of a strip [width] wide.
+bool hitSleep(Offset p, double width) => (p - _sleepCentre(width)).distance <= _buttonR + 6;
 
 /// The band's live parts: the display and the status lamp.
 class DisplayPainter extends DeckPainter {
@@ -93,27 +98,51 @@ class DisplayPainter extends DeckPainter {
       oldDelegate.placement != placement || oldDelegate.frame != frame || oldDelegate.episode != episode;
 }
 
-/// The label strip's metal: the seam along its top and the load button.
+/// The label strip's metal: the seam along its top and the sleep button,
+/// captioned with the time left once the sleep timer is set.
 class StripPainter extends DeckPainter {
-  StripPainter(super.placement, this.frame) : super(repaint: frame.strip);
+  StripPainter(super.placement, this.frame, {this.sleep}) : super(repaint: frame.strip);
 
   final DeckFrame frame;
+
+  /// The sleep timer's readout ("14:32", "END"); null when it is off.
+  final String? sleep;
 
   @override
   void paintDeck(Canvas canvas, Size view) {
     engraveLine(canvas, const Offset(60, seamY), Offset(view.width - 60, seamY), width: 2, unit: 2);
-    _loadButton(canvas);
+    final caption = panelType(size: 15, weight: FontWeight.w500, spacing: 3);
+    final c = _sleepCentre(view.width);
+    final face = _disc(canvas, c, frame.sleepTravel);
+    _moon(canvas, face.center);
+    final readout = sleep;
+    if (readout == null) {
+      engraveText(canvas, 'SLEEP', caption, c.dx, c.dy + _buttonR + 34, anchor: Anchor.middle, unit: 1.2);
+    } else {
+      // Running: the time left, steady digits, with a lit lamp beside the button.
+      final style = panelType(size: 17, weight: FontWeight.w600, spacing: 1.5);
+      final y = c.dy + _buttonR + 35;
+      drawTabular(
+        canvas,
+        readout,
+        style.copyWith(color: white.withValues(alpha: 0.7)),
+        c.dx,
+        y + 1.2,
+        anchor: Anchor.middle,
+      );
+      drawTabular(canvas, readout, style, c.dx, y, anchor: Anchor.middle);
+      _lamp(canvas, c + const Offset(_buttonR + 18, -_buttonR + 8));
+    }
   }
 
-  /// A plain round button set in a recess, like the TP-7's grey disc.
-  void _loadButton(Canvas canvas) {
-    const c = _loadCentre;
-    final t = frame.loadTravel;
-    final face = Rect.fromCircle(center: c + Offset(0, 2.5 * t), radius: _loadR - 4);
+  /// A plain round button set in a recess, like the TP-7's grey disc,
+  /// pushed [t] of the way in. Returns its face.
+  Rect _disc(Canvas canvas, Offset c, double t) {
+    final face = Rect.fromCircle(center: c + Offset(0, 2.5 * t), radius: _buttonR - 4);
     canvas
       // The recess: dark ring with a lit lower lip.
-      ..drawCircle(c + const Offset(0, 2), _loadR + 1, fill(white.withValues(alpha: 0.8)))
-      ..drawCircle(c, _loadR, fill(gap))
+      ..drawCircle(c + const Offset(0, 2), _buttonR + 1, fill(white.withValues(alpha: 0.8)))
+      ..drawCircle(c, _buttonR, fill(gap))
       ..drawCircle(face.center + Offset(0, 3 - 2 * t), face.width / 2, blurred(black.withValues(alpha: 0.5), 3))
       ..drawCircle(
         face.center,
@@ -126,19 +155,46 @@ class StripPainter extends DeckPainter {
         ),
       )
       ..drawCircle(face.center, face.width / 2 - 1, stroke(white.withValues(alpha: 0.45 * (1 - t)), 1.5));
-    engraveText(
-      canvas,
-      'LOAD',
-      panelType(size: 15, weight: FontWeight.w500, spacing: 3),
-      c.dx,
-      c.dy + _loadR + 34,
-      anchor: Anchor.middle,
-      unit: 1.2,
+    return face;
+  }
+
+  /// A crescent moon with three z's rising off it, engraved into the face
+  /// centred on [c].
+  void _moon(Canvas canvas, Offset c) {
+    final moonAt = c + const Offset(-7, 5);
+    final crescent = Path.combine(
+      PathOperation.difference,
+      Path()..addOval(Rect.fromCircle(center: moonAt, radius: 15)),
+      Path()..addOval(Rect.fromCircle(center: moonAt + const Offset(8, -7), radius: 13)),
     );
+    canvas
+      ..drawPath(crescent.shift(const Offset(0, 1.2)), fill(white.withValues(alpha: 0.7)))
+      ..drawPath(crescent, fill(engraving));
+    for (final (dx, dy, size) in const [(9.0, -1.0, 15.0), (17.0, -11.0, 12.0), (23.5, -20.0, 9.5)]) {
+      engraveText(
+        canvas,
+        'z',
+        panelType(size: size, weight: FontWeight.w700),
+        c.dx + dx,
+        c.dy + dy,
+        anchor: Anchor.middle,
+        unit: 1,
+      );
+    }
+  }
+
+  /// The sleep timer's status light, lit.
+  void _lamp(Canvas canvas, Offset c) {
+    canvas
+      ..drawCircle(c + const Offset(0, 1.5), 7, fill(white.withValues(alpha: 0.8)))
+      ..drawCircle(c, 6.5, fill(accent))
+      ..drawCircle(c, 18, blurred(accent.withValues(alpha: 0.35), 7))
+      ..drawCircle(c - const Offset(2, 2), 2, fill(white.withValues(alpha: 0.6)));
   }
 
   @override
-  bool shouldRepaint(StripPainter oldDelegate) => oldDelegate.placement != placement || oldDelegate.frame != frame;
+  bool shouldRepaint(StripPainter oldDelegate) =>
+      oldDelegate.placement != placement || oldDelegate.frame != frame || oldDelegate.sleep != sleep;
 }
 
 /// "EP. 375" → "375"; dates and words are kept short.
