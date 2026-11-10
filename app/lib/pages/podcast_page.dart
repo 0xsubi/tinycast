@@ -124,7 +124,7 @@ class _PodcastPageState extends State<PodcastPage> {
                 artwork: episode.artwork ?? artwork,
                 onTap: () => Navigator.of(context).push(
                   CupertinoPageRoute<void>(
-                    builder: (_) => EpisodePage(podcast: podcast, episode: episode),
+                    builder: (_) => EpisodePage(podcast: podcast, episode: episode, fromShow: true),
                   ),
                 ),
               );

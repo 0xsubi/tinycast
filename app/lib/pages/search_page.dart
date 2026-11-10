@@ -9,9 +9,11 @@ import '../ui/chrome.dart';
 import '../ui/metal_ui.dart';
 import '../ui/sections.dart';
 import '../ui/style.dart';
+import 'episode_page.dart';
 import 'podcast_page.dart';
 
-/// Search the podcast directory. Before a search, lists the recent ones.
+/// Search the podcast directory: shows, then episodes, matching the term.
+/// Before a search, lists the recent ones.
 class SearchPage extends StatefulWidget {
   const SearchPage({super.key});
 
@@ -26,6 +28,7 @@ class _SearchPageState extends State<SearchPage> {
   /// The search the results belong to; null before the first search.
   String? _term;
   Future<List<Podcast>>? _results;
+  Future<List<FoundEpisode>>? _episodes;
 
   @override
   void dispose() {
@@ -43,9 +46,11 @@ class _SearchPageState extends State<SearchPage> {
     _debounce?.cancel();
     final term = text.trim();
     if (term == _term) return;
+    final directory = AppScope.of(context).directory;
     setState(() {
       _term = term.isEmpty ? null : term;
-      _results = term.isEmpty ? null : AppScope.of(context).directory.search(term);
+      _results = term.isEmpty ? null : directory.search(term);
+      _episodes = term.isEmpty ? null : directory.searchEpisodes(term);
     });
   }
 
@@ -68,6 +73,14 @@ class _SearchPageState extends State<SearchPage> {
   void _open(Podcast podcast) {
     if (_term case final term?) unawaited(rememberSearch(AppScope.of(context).library, term));
     Navigator.of(context).push(CupertinoPageRoute<void>(builder: (_) => PodcastPage(podcast: podcast)));
+  }
+
+  /// Opens an episode from the results; remembered like a show.
+  void _openEpisode(FoundEpisode found) {
+    if (_term case final term?) unawaited(rememberSearch(AppScope.of(context).library, term));
+    Navigator.of(context).push(
+      CupertinoPageRoute<void>(builder: (_) => EpisodePage(podcast: found.podcast, episode: found.episode)),
+    );
   }
 
   @override
@@ -120,25 +133,45 @@ class _SearchPageState extends State<SearchPage> {
         ),
       );
     }
-    return FutureBuilder<List<Podcast>>(
+    return SliverMainAxisGroup(
       key: ValueKey(_term),
-      future: results,
-      builder: (context, snap) {
-        Widget message(StateMessage m) => SliverToBoxAdapter(child: m);
-        if (snap.connectionState != ConnectionState.done) {
-          return message(const StateMessage(text: 'Searching…', loading: true));
-        }
-        if (snap.hasError) {
-          return message(StateMessage(text: '${snap.error}', icon: CupertinoIcons.wifi_exclamationmark));
-        }
-        final shows = snap.data!;
-        if (shows.isEmpty) {
-          return message(StateMessage(text: 'No shows match “$_term”', icon: CupertinoIcons.search));
-        }
-        return ShowGrid(shows: shows, onOpen: _open);
-      },
+      slivers: [
+        _heading('SHOWS'),
+        _section<Podcast>(
+          results,
+          empty: 'No shows match “$_term”',
+          found: (shows) => ShowGrid(shows: shows, onOpen: _open),
+        ),
+        const SliverToBoxAdapter(child: SizedBox(height: 30)),
+        _heading('EPISODES'),
+        _section<FoundEpisode>(
+          _episodes!,
+          empty: 'No episodes match “$_term”',
+          found: (episodes) => EpisodeGrid(episodes: episodes, onOpen: _openEpisode),
+        ),
+      ],
     );
   }
+
+  static Widget _heading(String text) => SliverToBoxAdapter(child: ContentColumn(child: sectionHeading(text)));
+
+  /// One kind of result: searching, failed, none, or [found] as a sliver.
+  Widget _section<T>(Future<List<T>> results, {required String empty, required Widget Function(List<T>) found}) =>
+      FutureBuilder<List<T>>(
+        future: results,
+        builder: (context, snap) {
+          Widget message(StateMessage m) => SliverToBoxAdapter(child: m);
+          if (snap.connectionState != ConnectionState.done) {
+            return message(const StateMessage(text: 'Searching…', loading: true));
+          }
+          if (snap.hasError) {
+            return message(StateMessage(text: '${snap.error}', icon: CupertinoIcons.wifi_exclamationmark));
+          }
+          final items = snap.data!;
+          if (items.isEmpty) return message(StateMessage(text: empty, icon: CupertinoIcons.search));
+          return found(items);
+        },
+      );
 }
 
 /// A recent search term; tap to search it again.

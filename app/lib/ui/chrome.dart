@@ -1,6 +1,5 @@
 import 'package:flutter/cupertino.dart';
 
-import '../deck/mini_reels.dart';
 import '../deck/paint_kit.dart' show white;
 
 import '../pages/player_page.dart';
@@ -157,36 +156,42 @@ class NowPlayingBar extends StatelessWidget {
           child: Row(
             children: [
               Expanded(
-                child: MetalPlate(
+                child: GestureDetector(
                   key: const Key('now-playing'),
+                  behavior: HitTestBehavior.opaque,
                   onTap: () => openPlayer(context),
-                  radius: 12,
-                  rim: accent,
-                  padding: const EdgeInsets.fromLTRB(9, 9, 14, 9),
-                  child: Row(
-                    children: [
-                      Artwork(url: now.artwork, size: 40, radius: 7),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            MarqueeText(now.label.title, style: textStyle(size: 14, weight: FontWeight.w700)),
-                            Text(
-                              transport.buffering ? 'Buffering…' : now.label.show,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: textStyle(size: 12.5, alpha: 0.55),
+                  child: MouseRegion(
+                    cursor: SystemMouseCursors.click,
+                    child: DisplayWindow(
+                      radius: 12,
+                      padding: const EdgeInsets.fromLTRB(9, 9, 14, 9),
+                      child: Row(
+                        children: [
+                          Artwork(url: now.artwork, size: 40, radius: 7, shadow: false),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                MarqueeText(
+                                  now.label.title,
+                                  style: textStyle(size: 14, weight: FontWeight.w700, color: pixel),
+                                ),
+                                Text(
+                                  transport.buffering ? 'Buffering…' : now.label.show,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: textStyle(size: 12.5, color: pixel.withValues(alpha: 0.55)),
+                                ),
+                              ],
                             ),
-                          ],
-                        ),
+                          ),
+                          const SizedBox(width: 10),
+                          Lamp(on: transport.playing),
+                        ],
                       ),
-                      const SizedBox(width: 10),
-                      MiniReels(transport: transport, height: 42),
-                      const SizedBox(width: 10),
-                      Lamp(on: transport.playing),
-                    ],
+                    ),
                   ),
                 ),
               ),

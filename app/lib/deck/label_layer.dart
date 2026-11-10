@@ -111,7 +111,7 @@ class LabelPainter extends DeckPainter {
     drawString(canvas, episode.tag, tagStyle, r.right - 24, r.top + 29, anchor: Anchor.end);
     drawString(
       canvas,
-      'STEREO · 7½ IPS · ${formatTime(transport.duration)}',
+      formatTime(transport.duration),
       typewriter(size: 17, spacing: 1.5, color: rgb(0x6d604d)),
       left,
       r.top + 106,

@@ -92,6 +92,34 @@ void main() {
     expect(() => parseSearchResults('<html>'), throwsA(isA<FeedError>()));
   });
 
+  test('parses episode search results with their shows, skipping ones without audio or a feed', () {
+    final found = parseEpisodeResults('''{"resultCount": 3, "results": [
+      {"trackName": "Seinfeld", "collectionName": "Acquired", "episodeGuid": "9c3ce276",
+       "feedUrl": "https://feeds.transistor.fm/acquired",
+       "episodeUrl": "https://media.example.com/seinfeld.mp3", "episodeFileExtension": "mp3",
+       "releaseDate": "2026-10-19T04:00:46Z", "trackTimeMillis": 13820000,
+       "contentAdvisoryRating": "Clean", "description": "The <b>business</b> of &amp; nothing.",
+       "artworkUrl600": "https://example.com/600.jpg", "genres": [{"name": "Technology", "id": "1318"}]},
+      {"trackName": "No audio", "feedUrl": "https://example.com/feed.xml"},
+      {"trackName": "No feed", "episodeUrl": "https://example.com/a.mp3"}
+    ]}''');
+    expect(found, hasLength(1));
+    final (:podcast, :episode) = found.single;
+    expect(podcast.title, 'Acquired');
+    expect(podcast.feed, Uri.parse('https://feeds.transistor.fm/acquired'));
+    expect(podcast.artwork, 'https://example.com/600.jpg');
+    expect(podcast.genre, 'Technology');
+    expect(episode.id, '9c3ce276');
+    expect(episode.title, 'Seinfeld');
+    expect(episode.audio, Uri.parse('https://media.example.com/seinfeld.mp3'));
+    expect(episode.published, DateTime.utc(2026, 10, 19, 4, 0, 46));
+    expect(episode.duration, 13820);
+    expect(episode.explicit, isFalse);
+    expect(episode.mimeType, 'audio/mpeg');
+    expect(episode.description, 'The business of & nothing.');
+    expect(() => parseEpisodeResults('<html>'), throwsA(isA<FeedError>()));
+  });
+
   test('reads a genre chart and orders its lookup by rank', () {
     final ids = parseChart('''{"feed": {"entry": [
       {"im:name": {"label": "First"}, "id": {"label": "https://x", "attributes": {"im:id": "111"}}},

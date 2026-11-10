@@ -26,6 +26,9 @@ class Podcast {
   int get hashCode => feed.hashCode;
 }
 
+/// An episode together with the show it belongs to, e.g. as a search found it.
+typedef FoundEpisode = ({Podcast podcast, PodcastEpisode episode});
+
 /// Everything read from a podcast's RSS feed.
 class PodcastFeed {
   const PodcastFeed({

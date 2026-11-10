@@ -109,6 +109,13 @@ void paintRecess(Canvas canvas, RRect r, {double lip = 1.2}) {
 void paintFace(Canvas canvas, RRect face, {Color? base, double travel = 0}) {
   final rect = face.outerRect;
   final color = Color.lerp(base ?? keyAluminium, black, travel * 0.08)!;
+  // Bare aluminium takes a white chamfer; a coloured face catches the light
+  // in its own colour, or the white reads as a gap under the seam.
+  final tinted = base != null;
+  final sheen = tinted ? 0.4 : 1.0;
+  final chamfer = tinted
+      ? Color.lerp(color, white, 0.3)!.withValues(alpha: 0.9 - travel * 0.4)
+      : white.withValues(alpha: 0.85 - travel * 0.4);
   canvas
     ..save()
     ..clipRRect(face)
@@ -118,14 +125,14 @@ void paintFace(Canvas canvas, RRect face, {Color? base, double travel = 0}) {
       rect,
       shaded(
         boxLinear(rect, 0, 0, 0, 1, [
-          (0, white.withValues(alpha: 0.35 * (1 - travel * 0.6))),
+          (0, white.withValues(alpha: 0.35 * sheen * (1 - travel * 0.6))),
           (math.min(0.5, 14 / rect.height), white.withValues(alpha: 0.04)),
           (0.85, black.withValues(alpha: 0)),
           (1, black.withValues(alpha: 0.1)),
         ]),
       ),
     )
-    ..drawRect(Rect.fromLTWH(rect.left, rect.top, rect.width, 1.2), fill(white.withValues(alpha: 0.85 - travel * 0.4)))
+    ..drawRect(Rect.fromLTWH(rect.left, rect.top, rect.width, 1.2), fill(chamfer))
     ..restore()
     ..drawRRect(face.deflate(0.5), stroke(black.withValues(alpha: 0.22), 1));
 }

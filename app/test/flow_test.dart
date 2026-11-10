@@ -65,6 +65,14 @@ class _FakeDirectory implements PodcastDirectory {
     return [_show];
   }
 
+  final List<String> episodeSearches = [];
+
+  @override
+  Future<List<FoundEpisode>> searchEpisodes(String term) async {
+    episodeSearches.add(term);
+    return [(podcast: _show, episode: _feed.episodes[1])];
+  }
+
   @override
   Future<List<Podcast>> top(int genre) async {
     charts.add(genre);
@@ -172,11 +180,20 @@ void main() {
     // The episode: artwork, metadata, full notes; nothing plays yet.
     expect(find.byType(EpisodePage), findsOneWidget);
     expect(find.byKey(const Key('episode-art')), findsOneWidget);
-    for (final meta in ['Oct 9, 2026', '1 hr 2 min', 'Season 2', 'Episode 12', '59 MB', 'MP3']) {
+    for (final meta in ['Oct 9, 2026', '1 hr 2 min', 'Season 2', 'Episode 12', '59 MB']) {
       expect(find.text(meta), findsOneWidget, reason: meta);
     }
+    expect(find.text('MP3'), findsNothing);
     expect(find.byType(PlayerPage), findsNothing);
     expect(transport.loaded, isEmpty);
+
+    // Opened from the show, its name goes back to the show, not a second copy.
+    await tester.tap(find.byKey(const Key('episode-show')));
+    await tester.pumpAndSettle();
+    expect(find.byType(EpisodePage), findsNothing);
+    expect(find.byType(PodcastPage), findsOneWidget);
+    await tester.tap(find.text('Folding phones, revisited'));
+    await tester.pumpAndSettle();
 
     await tester.tap(find.byKey(const Key('play-episode')));
     // The deck animates every frame, so it never settles; let the route finish.
@@ -307,6 +324,53 @@ void main() {
     expect(find.byType(InterestsPage), findsNothing);
     expect(find.text('Pick a few topics to see their top shows here.'), findsOneWidget);
     expect(chosenInterests(library), isEmpty);
+  });
+
+  testWidgets('search finds episodes as well as shows, and opens one', (tester) async {
+    await onboarded();
+    final directory = _FakeDirectory();
+    await tester.pumpWidget(
+      ReelPlayerApp(
+        library: library,
+        directory: directory,
+        playback: Playback(transport: _FakeTransport()),
+      ),
+    );
+    await tester.pump();
+
+    await openTab(tester, 'Search');
+    await tester.enterText(find.byType(EditableText), 'laptops');
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pumpAndSettle();
+    expect(directory.searches, ['laptops']);
+    expect(directory.episodeSearches, ['laptops']);
+
+    // Shows first, then episodes, each under its own heading.
+    expect(find.text('SHOWS'), findsOneWidget);
+    expect(find.text('EPISODES'), findsOneWidget);
+    expect(find.text('Gadget Hour'), findsOneWidget);
+    expect(
+      tester.getTopLeft(find.text('EPISODES')).dy,
+      greaterThan(tester.getTopLeft(find.text('Gadget Hour')).dy),
+    );
+
+    final episode = find.text('Laptops');
+    await tester.ensureVisible(episode);
+    await tester.pumpAndSettle();
+    await tester.tap(episode);
+    await tester.pumpAndSettle();
+    expect(find.byType(EpisodePage), findsOneWidget);
+    final page = tester.widget<EpisodePage>(find.byType(EpisodePage));
+    expect(page.episode.id, 'ep-11');
+    expect(page.podcast, _show);
+    expect(recentSearches(library), ['laptops']);
+
+    // The show's name opens the show.
+    await tester.tap(find.byKey(const Key('episode-show')));
+    await tester.pumpAndSettle();
+    expect(find.byType(EpisodePage), findsNothing);
+    expect(find.byType(PodcastPage), findsOneWidget);
+    expect(tester.widget<PodcastPage>(find.byType(PodcastPage)).podcast, _show);
   });
 
   testWidgets('search lists recent searches before a search', (tester) async {

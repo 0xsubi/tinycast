@@ -13,15 +13,29 @@ import '../ui/metal_ui.dart';
 import '../ui/notes_text.dart';
 import '../ui/sections.dart';
 import '../ui/style.dart';
+import 'podcast_page.dart';
 
 /// One episode: artwork, metadata and show notes, with Play, favorite and
 /// download. Play threads it onto the deck.
 class EpisodePage extends StatelessWidget {
-  const EpisodePage({super.key, required this.podcast, required this.episode});
+  const EpisodePage({super.key, required this.podcast, required this.episode, this.fromShow = false});
 
   /// The show, with its artwork and author filled in from the feed.
   final Podcast podcast;
   final PodcastEpisode episode;
+
+  /// Opened from the show's own page, so tapping the show's name goes back
+  /// to it rather than stacking another copy.
+  final bool fromShow;
+
+  void _openShow(BuildContext context) {
+    final navigator = Navigator.of(context);
+    if (fromShow) {
+      navigator.pop();
+    } else {
+      navigator.push(CupertinoPageRoute<void>(builder: (_) => PodcastPage(podcast: podcast)));
+    }
+  }
 
   String? get _artwork => episode.artwork ?? podcast.artwork;
 
@@ -43,13 +57,25 @@ class EpisodePage extends StatelessWidget {
       if (e.type == 'bonus') const MetaPill('Bonus'),
       if (e.explicit ?? false) const MetaPill('Explicit'),
       if (e.bytes != null) MetaPill(formatBytes(e.bytes!), icon: CupertinoIcons.arrow_down_circle),
-      if (_format(e.mimeType) case final format?) MetaPill(format),
     ];
 
     final heading = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(podcast.title.toUpperCase(), style: eyebrow(color: accentInk)),
+        GestureDetector(
+          key: const Key('episode-show'),
+          behavior: HitTestBehavior.opaque,
+          onTap: () => _openShow(context),
+          child: MouseRegion(
+            cursor: SystemMouseCursors.click,
+            child: Semantics(
+              link: true,
+              label: 'Go to ${podcast.title}',
+              excludeSemantics: true,
+              child: Text(podcast.title.toUpperCase(), style: eyebrow(color: accentInk)),
+            ),
+          ),
+        ),
         const SizedBox(height: 8),
         Text(e.title, style: textStyle(size: 30, weight: FontWeight.w400, height: 1.18, spacing: -0.2)),
         if (podcast.author case final author?) ...[
@@ -125,18 +151,6 @@ class EpisodePage extends StatelessWidget {
     );
   }
 }
-
-/// "MP3" from `audio/mpeg`.
-String? _format(String? mime) => switch (mime?.toLowerCase()) {
-  'audio/mpeg' || 'audio/mp3' => 'MP3',
-  'audio/mp4' || 'audio/x-m4a' || 'audio/m4a' => 'AAC',
-  'audio/aac' => 'AAC',
-  'audio/ogg' || 'audio/opus' => 'Ogg',
-  'audio/wav' || 'audio/x-wav' => 'WAV',
-  'audio/flac' => 'FLAC',
-  'video/mp4' => 'Video',
-  _ => null,
-};
 
 /// The orange Play cap. Says "Resume" when this episode was left part-way
 /// or is paused on the deck, with how much has been heard along its bottom

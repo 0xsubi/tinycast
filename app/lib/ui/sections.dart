@@ -172,6 +172,41 @@ class ShowGrid extends StatelessWidget {
   );
 }
 
+/// A grid of [EpisodeTile]s, as a sliver.
+class EpisodeGrid extends StatelessWidget {
+  const EpisodeGrid({super.key, required this.episodes, required this.onOpen});
+
+  final List<FoundEpisode> episodes;
+  final ValueChanged<FoundEpisode> onOpen;
+
+  @override
+  Widget build(BuildContext context) => SliverPadding(
+    padding: const EdgeInsets.symmetric(horizontal: 20),
+    sliver: SliverCrossAxisConstrained(
+      maxCrossAxisExtent: contentWidth - 40,
+      child: SliverGrid.builder(
+        gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+          maxCrossAxisExtent: 210,
+          mainAxisSpacing: 14,
+          crossAxisSpacing: 14,
+          // Taller than a show card: the show's name and a date line too.
+          childAspectRatio: 0.62,
+        ),
+        itemCount: episodes.length,
+        itemBuilder: (context, i) {
+          final found = episodes[i];
+          return EpisodeTile(
+            key: ValueKey('found-${found.podcast.feed}-${found.episode.id}'),
+            podcast: found.podcast,
+            episode: found.episode,
+            onTap: () => onOpen(found),
+          );
+        },
+      ),
+    ),
+  );
+}
+
 /// Caps a sliver's cross-axis extent and centres it, like [ContentColumn] for slivers.
 class SliverCrossAxisConstrained extends StatelessWidget {
   const SliverCrossAxisConstrained({super.key, required this.maxCrossAxisExtent, required this.child});
